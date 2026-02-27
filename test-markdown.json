@@ -1,0 +1,13 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Write a quick hello world in Python and JS with some bold text."
+    },
+    {
+      "role": "assistant",
+      "content": "Here is a quick **Hello World** in both languages:\n\n### Python\n```python\nprint(\"Hello World from Python!\")\n```\n\n### JavaScript\n```javascript\nconsole.log(\"Hello World from JS!\");\n```\n\nHope this helps!"
+    }
+  ],
+  "title": "Markdown Test"
+}
