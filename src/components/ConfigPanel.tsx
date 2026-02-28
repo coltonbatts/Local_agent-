@@ -1,36 +1,100 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  DEFAULT_OPENROUTER_APP_TITLE,
+  DEFAULT_OPENROUTER_HTTP_REFERER,
+} from '../providers/openrouter';
+import type {
+  OpenRouterConnectionStatus,
+  OpenRouterSettings,
+  ProviderDebugInfo,
+  ProviderId,
+  ProviderModel,
+} from '../providers/types';
 import type { AppConfig } from '../types/config';
 
 interface ConfigPanelProps {
   config: AppConfig | null;
-  availableModels: string[];
+  availableModels: ProviderModel[];
   onConfigChange: (patch: Partial<AppConfig>) => Promise<AppConfig | void>;
-  onRefreshModels: () => void;
+  onRefreshModels: (forceRefresh?: boolean) => void;
+  onTestOpenRouterConnection: (settings: OpenRouterSettings) => Promise<OpenRouterConnectionStatus>;
+  lastProviderDebug: ProviderDebugInfo | null;
 }
+
+const DEFAULT_PROVIDER: ProviderId = 'local';
 
 export function ConfigPanel({
   config,
   availableModels,
   onConfigChange,
   onRefreshModels,
+  onTestOpenRouterConnection,
+  lastProviderDebug,
 }: ConfigPanelProps) {
-  const [modelBaseUrl, setModelBaseUrl] = useState(config?.modelBaseUrl ?? 'http://127.0.0.1:1234');
-  const [defaultModel, setDefaultModel] = useState(config?.defaultModel ?? '');
+  const [modelBaseUrl, setModelBaseUrl] = useState(config?.modelBaseUrl ?? 'http://127.0.0.1:1234/v1');
+  const [provider, setProvider] = useState<ProviderId>(config?.provider ?? DEFAULT_PROVIDER);
+  const [defaultModel, setDefaultModel] = useState('');
+  const [modelSearch, setModelSearch] = useState('');
+  const [visionOnly, setVisionOnly] = useState(false);
+
   const [temperature, setTemperature] = useState(config?.temperature ?? 0.7);
   const [maxTokens, setMaxTokens] = useState(config?.maxTokens ?? 4096);
   const [activeProfile, setActiveProfile] = useState(config?.activeProfile ?? 'default');
+
+  const [openRouterApiKey, setOpenRouterApiKey] = useState(config?.openrouter?.apiKey ?? '');
+  const [openRouterReferer, setOpenRouterReferer] = useState(
+    config?.openrouter?.httpReferer ?? DEFAULT_OPENROUTER_HTTP_REFERER
+  );
+  const [openRouterTitle, setOpenRouterTitle] = useState(
+    config?.openrouter?.appTitle ?? DEFAULT_OPENROUTER_APP_TITLE
+  );
+
   const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
 
   useEffect(() => {
-    if (config) {
-      setModelBaseUrl(config.modelBaseUrl);
-      setDefaultModel(config.defaultModel ?? '');
-      setTemperature(config.temperature);
-      setMaxTokens(config.maxTokens);
-      setActiveProfile(config.activeProfile);
-    }
+    if (!config) return;
+
+    setModelBaseUrl(config.modelBaseUrl);
+    setProvider(config.provider ?? DEFAULT_PROVIDER);
+    setTemperature(config.temperature);
+    setMaxTokens(config.maxTokens);
+    setActiveProfile(config.activeProfile);
+
+    setOpenRouterApiKey(config.openrouter?.apiKey ?? '');
+    setOpenRouterReferer(config.openrouter?.httpReferer ?? DEFAULT_OPENROUTER_HTTP_REFERER);
+    setOpenRouterTitle(config.openrouter?.appTitle ?? DEFAULT_OPENROUTER_APP_TITLE);
   }, [config]);
+
+  useEffect(() => {
+    if (!config) {
+      return;
+    }
+
+    const savedSelection = config.providerModelSelections?.[provider] ?? null;
+    const fallback = provider === config.provider ? config.defaultModel : null;
+    setDefaultModel(savedSelection ?? fallback ?? '');
+  }, [config, provider]);
+
+  const filteredModels = useMemo(() => {
+    const query = modelSearch.trim().toLowerCase();
+
+    return availableModels
+      .filter((model) => {
+        if (visionOnly && !model.visionCapable) {
+          return false;
+        }
+        if (!query) {
+          return true;
+        }
+
+        const haystack = `${model.name} ${model.id}`.toLowerCase();
+        return haystack.includes(query);
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }, [availableModels, modelSearch, visionOnly]);
 
   const save = useCallback(
     async (patch: Partial<AppConfig>) => {
@@ -55,7 +119,7 @@ export function ConfigPanel({
       setActiveProfile(profileId);
       setTemperature(profile.temperature);
       setMaxTokens(profile.maxTokens);
-      save({
+      void save({
         activeProfile: profileId,
         temperature: profile.temperature,
         maxTokens: profile.maxTokens,
@@ -64,13 +128,46 @@ export function ConfigPanel({
   };
 
   const handleSaveAll = () => {
-    save({
+    const currentSelections = {
+      local: config?.providerModelSelections?.local ?? null,
+      openrouter: config?.providerModelSelections?.openrouter ?? null,
+    };
+
+    currentSelections[provider] = defaultModel || null;
+
+    void save({
       modelBaseUrl,
+      provider,
       defaultModel: defaultModel || null,
+      providerModelSelections: currentSelections,
+      openrouter: {
+        apiKey: openRouterApiKey.trim(),
+        httpReferer: openRouterReferer.trim() || DEFAULT_OPENROUTER_HTTP_REFERER,
+        appTitle: openRouterTitle.trim() || DEFAULT_OPENROUTER_APP_TITLE,
+      },
       temperature,
       maxTokens,
       activeProfile,
     });
+  };
+
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setConnectionStatus(null);
+
+    try {
+      const result = await onTestOpenRouterConnection({
+        apiKey: openRouterApiKey.trim(),
+        httpReferer: openRouterReferer.trim() || DEFAULT_OPENROUTER_HTTP_REFERER,
+        appTitle: openRouterTitle.trim() || DEFAULT_OPENROUTER_APP_TITLE,
+      });
+
+      setConnectionStatus(result.message);
+    } catch (error) {
+      setConnectionStatus(error instanceof Error ? error.message : 'OpenRouter connection failed');
+    } finally {
+      setIsTestingConnection(false);
+    }
   };
 
   const profileOptions = config?.profiles
@@ -82,18 +179,45 @@ export function ConfigPanel({
       <h3 className="config-section-title">Config</h3>
 
       <div className="config-field">
-        <label>Model base URL</label>
+        <label>Provider</label>
+        <select value={provider} onChange={(e) => setProvider(e.target.value as ProviderId)}>
+          <option value="local">Local OpenAI-compatible</option>
+          <option value="openrouter">OpenRouter</option>
+        </select>
+      </div>
+
+      <div className="config-field">
+        <label>Model base URL (local provider)</label>
         <input
           type="url"
           value={modelBaseUrl}
           onChange={(e) => setModelBaseUrl(e.target.value)}
-          placeholder="http://127.0.0.1:1234"
+          placeholder="http://127.0.0.1:1234/v1"
         />
-        <span className="config-hint">LM Studio, Ollama, llama.cpp, OpenRouter, etc.</span>
+        <span className="config-hint">LM Studio, Ollama, llama.cpp, and other OpenAI-compatible servers.</span>
       </div>
 
       <div className="config-field">
-        <label>Default model</label>
+        <label>Model search</label>
+        <input
+          type="text"
+          value={modelSearch}
+          onChange={(e) => setModelSearch(e.target.value)}
+          placeholder="Search by model id or name"
+        />
+      </div>
+
+      <label className="config-checkbox-row">
+        <input
+          type="checkbox"
+          checked={visionOnly}
+          onChange={(e) => setVisionOnly(e.target.checked)}
+        />
+        Vision capable only
+      </label>
+
+      <div className="config-field">
+        <label>Default model ({filteredModels.length} shown)</label>
         <div style={{ display: 'flex', gap: '6px' }}>
           <select
             value={defaultModel}
@@ -101,17 +225,62 @@ export function ConfigPanel({
             style={{ flex: 1 }}
           >
             <option value="">Auto (first available)</option>
-            {availableModels.map((m) => (
-              <option key={m} value={m}>
-                {m}
+            {filteredModels.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.id}
+                {model.visionCapable ? ' (vision)' : ''}
               </option>
             ))}
           </select>
-          <button type="button" onClick={onRefreshModels} title="Refresh models">
+          <button type="button" onClick={() => onRefreshModels(true)} title="Refresh models">
             ↻
           </button>
         </div>
       </div>
+
+      <h4 className="config-subsection-title">OpenRouter</h4>
+      <div className="config-field">
+        <label>API key</label>
+        <input
+          type="password"
+          value={openRouterApiKey}
+          onChange={(e) => setOpenRouterApiKey(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="sk-or-v1-..."
+        />
+      </div>
+
+      <div className="config-field">
+        <label>HTTP-Referer</label>
+        <input
+          type="text"
+          value={openRouterReferer}
+          onChange={(e) => setOpenRouterReferer(e.target.value)}
+          placeholder={DEFAULT_OPENROUTER_HTTP_REFERER}
+        />
+      </div>
+
+      <div className="config-field">
+        <label>X-OpenRouter-Title</label>
+        <input
+          type="text"
+          value={openRouterTitle}
+          onChange={(e) => setOpenRouterTitle(e.target.value)}
+          placeholder={DEFAULT_OPENROUTER_APP_TITLE}
+        />
+      </div>
+
+      <div className="config-actions">
+        <button
+          type="button"
+          onClick={() => void handleTestConnection()}
+          disabled={isTestingConnection || openRouterApiKey.trim().length === 0}
+        >
+          {isTestingConnection ? 'Testing…' : 'Test connection'}
+        </button>
+      </div>
+      {connectionStatus && <div className="config-status">{connectionStatus}</div>}
 
       <div className="config-field">
         <label>Profile</label>
@@ -154,6 +323,34 @@ export function ConfigPanel({
         </button>
         {status && <span className="config-status">{status}</span>}
       </div>
+
+      <h4 className="config-subsection-title">Provider Debug</h4>
+      {lastProviderDebug ? (
+        <div className="provider-debug-panel">
+          <div>
+            <span className="provider-debug-label">Provider:</span> {lastProviderDebug.provider}
+          </div>
+          <div>
+            <span className="provider-debug-label">Operation:</span> {lastProviderDebug.operation}
+          </div>
+          <div>
+            <span className="provider-debug-label">Model:</span> {lastProviderDebug.model ?? '--'}
+          </div>
+          <div>
+            <span className="provider-debug-label">Status:</span> {lastProviderDebug.status ?? '--'}
+          </div>
+          <div>
+            <span className="provider-debug-label">Request ID:</span>{' '}
+            {lastProviderDebug.requestId ?? '--'}
+          </div>
+          <div>
+            <span className="provider-debug-label">Endpoint:</span> {lastProviderDebug.endpoint}
+          </div>
+          <pre className="provider-debug-headers">{JSON.stringify(lastProviderDebug.headers, null, 2)}</pre>
+        </div>
+      ) : (
+        <span className="config-hint">No provider requests recorded yet.</span>
+      )}
     </section>
   );
 }

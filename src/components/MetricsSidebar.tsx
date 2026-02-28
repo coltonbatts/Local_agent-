@@ -4,6 +4,12 @@ import { FlightRecorderPanel } from './FlightRecorderPanel';
 import { SkillsPanel } from './SkillsPanel';
 import type { McpServerConfig, McpToolsGroup, Metrics, Skill, SkillsSyncState } from '../types/chat';
 import type { AppConfig } from '../types/config';
+import type {
+  OpenRouterConnectionStatus,
+  OpenRouterSettings,
+  ProviderDebugInfo,
+  ProviderModel,
+} from '../providers/types';
 
 interface MetricsSidebarProps {
   metrics: Metrics;
@@ -11,9 +17,11 @@ interface MetricsSidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
   config: AppConfig | null;
-  availableModels: string[];
+  availableModels: ProviderModel[];
   onConfigChange: (patch: Partial<AppConfig>) => Promise<AppConfig | void>;
-  onRefreshModels: () => void;
+  onRefreshModels: (forceRefresh?: boolean) => void;
+  onTestOpenRouterConnection: (settings: OpenRouterSettings) => Promise<OpenRouterConnectionStatus>;
+  lastProviderDebug: ProviderDebugInfo | null;
   mcpServers: McpServerConfig[];
   mcpToolsGrouped: McpToolsGroup[];
   mcpToolErrors: string[];
@@ -46,6 +54,8 @@ export function MetricsSidebar({
   availableModels,
   onConfigChange,
   onRefreshModels,
+  onTestOpenRouterConnection,
+  lastProviderDebug,
   mcpServers,
   mcpToolsGrouped,
   mcpToolErrors,
@@ -115,6 +125,8 @@ export function MetricsSidebar({
           availableModels={availableModels}
           onConfigChange={onConfigChange}
           onRefreshModels={onRefreshModels}
+          onTestOpenRouterConnection={onTestOpenRouterConnection}
+          lastProviderDebug={lastProviderDebug}
         />
 
         <SkillsPanel

@@ -1,9 +1,22 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ChatHeader } from './components/ChatHeader';
 import { ChatHistorySidebar } from './components/ChatHistorySidebar';
 import { ChatInput } from './components/ChatInput';
 import { MessageList } from './components/MessageList';
 import { MetricsSidebar } from './components/MetricsSidebar';
+import {
+  DEFAULT_OPENROUTER_APP_TITLE,
+  DEFAULT_OPENROUTER_HTTP_REFERER,
+  createLocalOpenAICompatibleProvider,
+  createOpenRouterProvider,
+  ProviderRequestError,
+} from './providers';
+import type {
+  OpenRouterSettings,
+  ProviderDebugInfo,
+  ProviderId,
+  ProviderModel,
+} from './providers';
 import type {
   ChatMetadata,
   McpServerConfig,
@@ -69,8 +82,10 @@ function App() {
   const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
   const [skillsSyncState, setSkillsSyncState] = useState<SkillsSyncState | null>(null);
   const [modelName, setModelName] = useState('Local Model');
+  const [selectedProvider, setSelectedProvider] = useState<ProviderId>('local');
   const [chats, setChats] = useState<ChatMetadata[]>([]);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableModels, setAvailableModels] = useState<ProviderModel[]>([]);
+  const [lastProviderDebug, setLastProviderDebug] = useState<ProviderDebugInfo | null>(null);
   const [currentChatFilename, setCurrentChatFilename] = useState<string | null>(null);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
@@ -83,6 +98,19 @@ function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const TOOL_API_KEY = import.meta.env.VITE_TOOL_API_KEY as string | undefined;
+  const localProvider = useMemo(() => createLocalOpenAICompatibleProvider(), []);
+  const openRouterProvider = useMemo(() => createOpenRouterProvider(), []);
+
+  const openRouterSettings = useMemo<OpenRouterSettings>(
+    () => ({
+      apiKey: config?.openrouter?.apiKey ?? '',
+      httpReferer:
+        config?.openrouter?.httpReferer?.trim() ||
+        (typeof window !== 'undefined' ? window.location.origin : DEFAULT_OPENROUTER_HTTP_REFERER),
+      appTitle: config?.openrouter?.appTitle?.trim() || DEFAULT_OPENROUTER_APP_TITLE,
+    }),
+    [config?.openrouter?.apiKey, config?.openrouter?.httpReferer, config?.openrouter?.appTitle]
+  );
 
   const buildToolHeaders = useCallback(
     (withJson = false): HeadersInit => {
@@ -109,21 +137,102 @@ function App() {
     }
   }, []);
 
-  const fetchModel = useCallback(async () => {
+  const getProviderClient = useCallback(
+    (provider: ProviderId) => (provider === 'openrouter' ? openRouterProvider : localProvider),
+    [localProvider, openRouterProvider]
+  );
+
+  const fetchModel = useCallback(async (forceRefresh = false, providerOverride?: ProviderId) => {
+    const requestProvider = providerOverride ?? selectedProvider;
+    const providerClient = getProviderClient(requestProvider);
+
     try {
-      const res = await fetch('/v1/models');
-      const data = await res.json();
-      if (data.data && data.data.length > 0) {
-        const models = data.data.map((m: { id: string }) => m.id);
-        setAvailableModels(models);
-        if (modelName === 'Local Model' || !models.includes(modelName)) {
-          setModelName(models[0]);
-        }
+      const result = await providerClient.listModels({
+        forceRefresh,
+        openRouterSettings,
+      });
+      setLastProviderDebug(result.debug);
+      setAvailableModels(result.models);
+
+      const modelIds = result.models.map((m) => m.id);
+      if (modelIds.length === 0) {
+        setModelName(requestProvider === 'openrouter' ? 'No OpenRouter models' : 'No Local models');
+        return;
       }
+
+      const preferredModel =
+        config?.providerModelSelections?.[requestProvider] ??
+        (requestProvider === config?.provider ? config.defaultModel : null);
+
+      setModelName((prev) => {
+        if (preferredModel && modelIds.includes(preferredModel)) {
+          return preferredModel;
+        }
+        if (modelIds.includes(prev)) {
+          return prev;
+        }
+        return modelIds[0];
+      });
     } catch (e) {
-      console.error('Failed to load model name', e);
+      if (e instanceof ProviderRequestError) {
+        setLastProviderDebug({
+          provider: e.meta.provider,
+          operation: 'models',
+          endpoint:
+            e.meta.endpoint ??
+            (requestProvider === 'openrouter'
+              ? 'https://openrouter.ai/api/v1/models'
+              : '/v1/models'),
+          status: e.meta.status,
+          requestId: e.meta.requestId,
+          headers: {},
+          timestamp: new Date().toISOString(),
+        });
+      }
+      setAvailableModels([]);
+      console.error(`Failed to load ${requestProvider} models`, e);
     }
-  }, [modelName]);
+  }, [
+    config?.defaultModel,
+    config?.provider,
+    config?.providerModelSelections,
+    getProviderClient,
+    openRouterSettings,
+    selectedProvider,
+  ]);
+
+  const refreshModels = useCallback(
+    (forceRefresh = true) => {
+      void fetchModel(forceRefresh);
+    },
+    [fetchModel]
+  );
+
+  const testOpenRouterConnection = useCallback(
+    async (settings: OpenRouterSettings) => {
+      try {
+        const result = await openRouterProvider.testConnection(settings);
+        if (result.debug) {
+          setLastProviderDebug(result.debug);
+        }
+        return result;
+      } catch (error) {
+        if (error instanceof ProviderRequestError) {
+          setLastProviderDebug({
+            provider: error.meta.provider,
+            operation: 'test',
+            endpoint: error.meta.endpoint ?? 'https://openrouter.ai/api/v1/auth/key',
+            status: error.meta.status,
+            requestId: error.meta.requestId,
+            headers: {},
+            timestamp: new Date().toISOString(),
+          });
+        }
+        throw error;
+      }
+    },
+    [openRouterProvider]
+  );
 
   const fetchChats = useCallback(async () => {
     try {
@@ -219,17 +328,20 @@ function App() {
 
   useEffect(() => {
     fetchSkills();
-    fetchModel();
     fetchChats();
     fetchConfig();
     void refreshTooling();
-  }, [fetchSkills, fetchModel, fetchChats, fetchConfig, refreshTooling]);
+  }, [fetchSkills, fetchChats, fetchConfig, refreshTooling]);
 
   useEffect(() => {
-    if (config?.defaultModel && availableModels.includes(config.defaultModel)) {
-      setModelName(config.defaultModel);
+    if (config?.provider) {
+      setSelectedProvider(config.provider);
     }
-  }, [config?.defaultModel, availableModels]);
+  }, [config?.provider]);
+
+  useEffect(() => {
+    void fetchModel(false, selectedProvider);
+  }, [fetchModel, selectedProvider]);
 
   useEffect(() => {
     try {
@@ -563,11 +675,16 @@ function App() {
       await runToolConversation({
         initialConversation: requestMessages,
         modelName: modelName,
+        provider: selectedProvider,
+        openRouterSettings,
         tools: toolDefinitions,
         toolApiKey: TOOL_API_KEY,
         temperature,
         maxTokens,
         toolsEnabled,
+        onProviderDebug: (debug) => {
+          setLastProviderDebug(debug);
+        },
         callbacks: {
           appendEmptyAssistant: () => {
             setMessages((prev) => [...prev, { role: 'assistant', content: '', tool_calls: [] }]);
@@ -597,18 +714,50 @@ function App() {
         },
       });
     } catch (error) {
-      console.error('Error connecting to local model:', error);
+      console.error('Error connecting to model provider:', error);
+      const providerLabel =
+        selectedProvider === 'openrouter' ? 'OpenRouter provider' : 'Local provider';
+      const providerHelp =
+        selectedProvider === 'openrouter'
+          ? 'Check your OpenRouter API key, selected model, and rate limits.'
+          : 'Check if LM Studio has the model loaded and the server is running.';
+      const providerError =
+        error instanceof ProviderRequestError
+          ? `${error.message}${error.meta.status ? ` (HTTP ${error.meta.status})` : ''}`
+          : error instanceof Error
+            ? error.message
+            : 'Unknown connection error';
       setMessages((prev) => [
         ...prev.slice(0, -1),
         {
           role: 'assistant',
-          content: `⚠️ Error: ${error instanceof Error ? error.message : 'Unknown error connecting to local model'}. Check if LM Studio has the model loaded and the server is running on port 1234.`,
+          content: `⚠️ ${providerLabel} error: ${providerError}. ${providerHelp}`,
         },
       ]);
     } finally {
       setIsGenerating(false);
     }
   };
+
+  const handleModelChange = useCallback(
+    (nextModel: string) => {
+      setModelName(nextModel);
+
+      if (!config) return;
+
+      const updatedSelections = {
+        local: config.providerModelSelections?.local ?? null,
+        openrouter: config.providerModelSelections?.openrouter ?? null,
+      };
+      updatedSelections[selectedProvider] = nextModel;
+
+      void updateConfig({
+        defaultModel: nextModel,
+        providerModelSelections: updatedSelections,
+      });
+    },
+    [config, selectedProvider, updateConfig]
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -640,8 +789,8 @@ function App() {
       <main className="chat-area">
         <ChatHeader
           modelName={modelName}
-          availableModels={availableModels}
-          onModelChange={setModelName}
+          availableModels={availableModels.map((model) => model.id)}
+          onModelChange={handleModelChange}
           isGenerating={isGenerating}
           hasMessages={messages.length > 0}
           onSaveChat={saveChat}
@@ -677,7 +826,9 @@ function App() {
         config={config}
         availableModels={availableModels}
         onConfigChange={updateConfig}
-        onRefreshModels={fetchModel}
+        onRefreshModels={refreshModels}
+        onTestOpenRouterConnection={testOpenRouterConnection}
+        lastProviderDebug={lastProviderDebug}
         mcpServers={mcpServers}
         mcpToolsGrouped={mcpToolsGrouped}
         mcpToolErrors={mcpToolErrors}

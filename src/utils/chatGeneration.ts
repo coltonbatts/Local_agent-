@@ -1,7 +1,16 @@
+import { createLocalOpenAICompatibleProvider, createOpenRouterProvider } from '../providers';
+import type {
+  OpenRouterSettings,
+  ProviderDebugInfo,
+  ProviderId,
+  ProviderModelApi,
+} from '../providers';
 import type { Message, Metrics, ToolCall, ToolDefinition, ToolExecutionEvent } from '../types/chat';
 
 /** Empty fallback when /api/tools/definitions fails. Backend is the single source of truth. */
 const EMPTY_TOOL_DEFINITIONS: ToolDefinition[] = [];
+const localProvider = createLocalOpenAICompatibleProvider();
+const openRouterProvider = createOpenRouterProvider();
 
 interface GenerationCallbacks {
   appendEmptyAssistant: () => void;
@@ -14,6 +23,8 @@ interface GenerationCallbacks {
 interface RunToolConversationParams {
   initialConversation: Message[];
   modelName: string;
+  provider: ProviderId;
+  openRouterSettings?: OpenRouterSettings;
   tools?: ToolDefinition[];
   toolApiKey?: string;
   callbacks: GenerationCallbacks;
@@ -22,11 +33,48 @@ interface RunToolConversationParams {
   temperature?: number;
   maxTokens?: number;
   toolsEnabled?: boolean;
+  onProviderDebug?: (debug: ProviderDebugInfo) => void;
 }
 
 interface ToolExecutionApiResponse {
   event: ToolExecutionEvent;
   result: unknown;
+}
+
+interface StreamToolCallDelta {
+  index?: number;
+  id?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
+interface StreamChunk {
+  error?: {
+    message?: string;
+  } | string;
+  choices?: Array<{
+    delta?: {
+      content?: string;
+      tool_calls?: StreamToolCallDelta[];
+    };
+  }>;
+}
+
+interface CompletionMessage {
+  content?: string;
+  tool_calls?: Array<{
+    id?: string;
+    function?: {
+      name?: string;
+      arguments?: string;
+    };
+  }>;
+}
+
+function getProviderClient(providerId: ProviderId): ProviderModelApi {
+  return providerId === 'openrouter' ? openRouterProvider : localProvider;
 }
 
 function createClientSideToolErrorEvent(
@@ -54,50 +102,93 @@ function createClientSideToolErrorEvent(
   };
 }
 
+function normalizeToolCalls(raw: CompletionMessage['tool_calls']): ToolCall[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((toolCall, index) => ({
+      id: typeof toolCall.id === 'string' ? toolCall.id : `call_${Date.now()}_${index}`,
+      type: 'function' as const,
+      function: {
+        name: typeof toolCall.function?.name === 'string' ? toolCall.function.name : '',
+        arguments:
+          typeof toolCall.function?.arguments === 'string' ? toolCall.function.arguments : '{}',
+      },
+    }))
+    .filter((toolCall) => toolCall.function.name.length > 0);
+}
+
+async function consumeNonStreamingResponse(
+  response: Response,
+  trackMetrics: boolean,
+  callbacks: GenerationCallbacks,
+  startTime: number
+): Promise<{ assistantContent: string; toolCalls: ToolCall[] }> {
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: CompletionMessage }>;
+    usage?: { completion_tokens?: number };
+  };
+
+  const message = payload.choices?.[0]?.message;
+  const assistantContent = typeof message?.content === 'string' ? message.content : '';
+  const toolCalls = normalizeToolCalls(message?.tool_calls);
+
+  callbacks.updateLastAssistant(assistantContent, toolCalls.length > 0 ? toolCalls : undefined);
+
+  if (trackMetrics) {
+    const endTime = performance.now();
+    callbacks.updateMetrics((prev) => ({
+      ...prev,
+      ttft: endTime - startTime,
+      totalLatency: endTime - startTime,
+      totalTokens:
+        typeof payload.usage?.completion_tokens === 'number' ? payload.usage.completion_tokens : 0,
+      tokensPerSec: 0,
+    }));
+  }
+
+  return { assistantContent, toolCalls };
+}
+
 async function streamAssistantResponse(
   messagesToSend: Message[],
   modelName: string,
+  provider: ProviderId,
+  openRouterSettings: OpenRouterSettings | undefined,
   tools: ToolDefinition[],
   trackMetrics: boolean,
   callbacks: GenerationCallbacks,
   temperature: number,
-  maxTokens: number
+  maxTokens: number,
+  onProviderDebug?: (debug: ProviderDebugInfo) => void
 ) {
   callbacks.appendEmptyAssistant();
 
-  const body: Record<string, unknown> = {
-    model: modelName,
-    messages: messagesToSend,
-    stream: true,
-    temperature,
-    max_tokens: maxTokens,
-  };
-  if (tools.length > 0) {
-    body.tools = tools;
-  }
-
-  const response = await fetch('/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    let errStr = `HTTP error! status: ${response.status}`;
-    try {
-      const errData = await response.json();
-      errStr += ` - ${errData.error?.message || errData.error || errData.detail || 'Unknown server error'}`;
-    } catch (err) {
-      console.debug('Could not parse error response as JSON', err);
-    }
-    throw new Error(errStr);
-  }
-
-  const reader = response.body?.getReader();
-  const decoder = new TextDecoder('utf-8');
-  if (!reader) throw new Error('No reader available');
-
   const startTime = performance.now();
+
+  const providerClient = getProviderClient(provider);
+  const completion = await providerClient.createChatCompletion(
+    {
+      model: modelName,
+      messages: messagesToSend,
+      tools,
+      stream: true,
+      temperature,
+      maxTokens,
+    },
+    { openRouterSettings }
+  );
+
+  onProviderDebug?.(completion.debug);
+
+  const reader = completion.response.body?.getReader();
+  if (!reader) {
+    return consumeNonStreamingResponse(completion.response, trackMetrics, callbacks, startTime);
+  }
+
+  const decoder = new TextDecoder('utf-8');
   let firstTokenTime: number | null = null;
   let tokenCount = 0;
   let assistantContent = '';
@@ -123,9 +214,12 @@ async function streamAssistantResponse(
       const trimmedLine = line.trim();
       if (trimmedLine.startsWith('data: ') && trimmedLine !== 'data: [DONE]') {
         try {
-          const data = JSON.parse(trimmedLine.slice(6));
+          const data = JSON.parse(trimmedLine.slice(6)) as StreamChunk;
           if (data.error) {
-            throw new Error(data.error.message || data.error || 'Unknown stream error');
+            if (typeof data.error === 'string') {
+              throw new Error(data.error);
+            }
+            throw new Error(data.error.message || 'Unknown stream error');
           }
           const delta = data.choices?.[0]?.delta;
 
@@ -213,6 +307,8 @@ async function executeToolCall(
 export async function runToolConversation({
   initialConversation,
   modelName,
+  provider,
+  openRouterSettings,
   tools,
   toolApiKey,
   callbacks,
@@ -221,6 +317,7 @@ export async function runToolConversation({
   temperature = 0.7,
   maxTokens = 4096,
   toolsEnabled = true,
+  onProviderDebug,
 }: RunToolConversationParams) {
   const toolHeaders: HeadersInit = {
     'Content-Type': 'application/json',
@@ -236,11 +333,14 @@ export async function runToolConversation({
     const { assistantContent, toolCalls } = await streamAssistantResponse(
       conversation,
       modelName,
+      provider,
+      openRouterSettings,
       toolsToUse,
       rounds === 0,
       callbacks,
       temperature,
-      maxTokens
+      maxTokens,
+      onProviderDebug
     );
 
     conversation = [
@@ -274,7 +374,7 @@ export async function runToolConversation({
     for (const tc of toolCallsToRun) {
       let args: Record<string, unknown>;
       try {
-        args = JSON.parse(tc.function.arguments);
+        args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
       } catch {
         args = {};
       }

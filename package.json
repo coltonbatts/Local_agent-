@@ -14,6 +14,7 @@
     "format:check": "prettier --check .",
     "test": "node --test test/*.test.js",
     "test:run": "node --test --test-reporter=spec",
+    "test:providers": "RUN_PROVIDER_SMOKE=1 node --test test/providerSmoke.test.js",
     "preview": "vite preview",
     "doctor": "node scripts/doctor.js",
     "sync-skills": "tsx scripts/sync-skills.ts",

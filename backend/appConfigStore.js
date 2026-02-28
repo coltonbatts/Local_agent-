@@ -4,6 +4,16 @@ import path from 'path';
 const DEFAULT_CONFIG = {
   modelBaseUrl: 'http://localhost:1234/v1',
   defaultModel: null,
+  provider: 'local',
+  providerModelSelections: {
+    local: null,
+    openrouter: null,
+  },
+  openrouter: {
+    apiKey: '',
+    httpReferer: 'http://localhost',
+    appTitle: 'Local Chat UI',
+  },
   temperature: 0.7,
   maxTokens: 4096,
   activeProfile: 'default',
@@ -40,6 +50,18 @@ function loadConfig(configPath) {
 
 function mergeWithDefaults(parsed) {
   const merged = { ...DEFAULT_CONFIG, ...parsed };
+  if (parsed?.providerModelSelections && typeof parsed.providerModelSelections === 'object') {
+    merged.providerModelSelections = {
+      ...DEFAULT_CONFIG.providerModelSelections,
+      ...parsed.providerModelSelections,
+    };
+  }
+  if (parsed?.openrouter && typeof parsed.openrouter === 'object') {
+    merged.openrouter = {
+      ...DEFAULT_CONFIG.openrouter,
+      ...parsed.openrouter,
+    };
+  }
   if (parsed?.profiles && typeof parsed.profiles === 'object') {
     merged.profiles = { ...DEFAULT_CONFIG.profiles, ...parsed.profiles };
   }
@@ -51,6 +73,10 @@ function saveConfig(configPath, config) {
   const toWrite = {
     modelBaseUrl: config.modelBaseUrl ?? DEFAULT_CONFIG.modelBaseUrl,
     defaultModel: config.defaultModel ?? DEFAULT_CONFIG.defaultModel,
+    provider: config.provider ?? DEFAULT_CONFIG.provider,
+    providerModelSelections:
+      config.providerModelSelections ?? DEFAULT_CONFIG.providerModelSelections,
+    openrouter: config.openrouter ?? DEFAULT_CONFIG.openrouter,
     temperature: config.temperature ?? DEFAULT_CONFIG.temperature,
     maxTokens: config.maxTokens ?? DEFAULT_CONFIG.maxTokens,
     activeProfile: config.activeProfile ?? DEFAULT_CONFIG.activeProfile,
@@ -76,7 +102,18 @@ export function createAppConfigStore(projectRoot) {
 
     updateConfig(patch) {
       const current = loadConfig(configPath);
-      const updated = { ...current, ...patch };
+      const updated = {
+        ...current,
+        ...patch,
+        providerModelSelections: {
+          ...current.providerModelSelections,
+          ...(patch?.providerModelSelections ?? {}),
+        },
+        openrouter: {
+          ...current.openrouter,
+          ...(patch?.openrouter ?? {}),
+        },
+      };
       saveConfig(configPath, updated);
       cached = updated;
       return { ...cached };
