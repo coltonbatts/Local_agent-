@@ -11,6 +11,7 @@ import type {
   Message,
   Metrics,
   Skill,
+  SkillsSyncState,
   ToolCall,
   ToolDefinition,
   ToolExecutionEvent,
@@ -66,6 +67,7 @@ function App() {
   const [hasLoadedPersistedMessages, setHasLoadedPersistedMessages] = useState(false);
   const [metrics, setMetrics] = useState<Metrics>(createDefaultMetrics());
   const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
+  const [skillsSyncState, setSkillsSyncState] = useState<SkillsSyncState | null>(null);
   const [modelName, setModelName] = useState('Local Model');
   const [chats, setChats] = useState<ChatMetadata[]>([]);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -101,6 +103,7 @@ function App() {
       const res = await fetch('/api/skills');
       const data = await res.json();
       if (data.skills) setAvailableSkills(data.skills);
+      if (data.syncState) setSkillsSyncState(data.syncState);
     } catch (e) {
       console.error('Failed to load skills', e);
     }
@@ -687,6 +690,10 @@ function App() {
         onReplayToolCall={replayToolCall}
         replayingEventId={replayingEventId}
         toolApiKey={TOOL_API_KEY}
+        availableSkills={availableSkills}
+        skillsSyncState={skillsSyncState}
+        onSyncSkills={fetchSkills}
+        onRefreshSkills={fetchSkills}
       />
     </div>
   );

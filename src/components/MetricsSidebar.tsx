@@ -1,7 +1,8 @@
 import { McpSettingsPanel } from './McpSettingsPanel';
 import { ConfigPanel } from './ConfigPanel';
 import { FlightRecorderPanel } from './FlightRecorderPanel';
-import type { McpServerConfig, McpToolsGroup, Metrics } from '../types/chat';
+import { SkillsPanel } from './SkillsPanel';
+import type { McpServerConfig, McpToolsGroup, Metrics, Skill, SkillsSyncState } from '../types/chat';
 import type { AppConfig } from '../types/config';
 
 interface MetricsSidebarProps {
@@ -25,6 +26,10 @@ interface MetricsSidebarProps {
   onReplayToolCall?: (eventId: string) => void;
   replayingEventId?: string | null;
   toolApiKey?: string;
+  availableSkills?: Skill[];
+  skillsSyncState?: SkillsSyncState | null;
+  onSyncSkills?: () => Promise<void>;
+  onRefreshSkills?: () => void;
 }
 
 function formatValue(value: number | null, decimals = 2) {
@@ -53,6 +58,10 @@ export function MetricsSidebar({
   onReplayToolCall,
   replayingEventId,
   toolApiKey,
+  availableSkills = [],
+  skillsSyncState = null,
+  onSyncSkills,
+  onRefreshSkills,
 }: MetricsSidebarProps) {
   return (
     <>
@@ -106,6 +115,14 @@ export function MetricsSidebar({
           availableModels={availableModels}
           onConfigChange={onConfigChange}
           onRefreshModels={onRefreshModels}
+        />
+
+        <SkillsPanel
+          skills={availableSkills}
+          syncState={skillsSyncState}
+          onSync={onSyncSkills ?? (async () => {})}
+          onRefresh={onRefreshSkills ?? (() => {})}
+          toolApiKey={toolApiKey}
         />
 
         <McpSettingsPanel

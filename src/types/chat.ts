@@ -47,6 +47,11 @@ export interface Skill {
   folderName: string;
 }
 
+export interface SkillsSyncState {
+  sourceRef: string | null;
+  lastSyncedAt: string | null;
+}
+
 export interface ChatMetadata {
   filename: string;
   title: string;

@@ -10,6 +10,7 @@ import { createMcpConfigStore } from './backend/mcpConfigStore.js';
 import { createAppConfigStore } from './backend/appConfigStore.js';
 import { call_tool, list_tools, withMcpConnection } from './backend/mcpClient.js';
 import { createToolEventLogger } from './backend/toolEventLogger.js';
+import { runSync, readSyncState } from './backend/syncSkills.js';
 
 dotenv.config();
 
@@ -441,11 +442,13 @@ app.post('/api/tools/replay/:eventId', requireToolAuth, async (req, res) => {
   }
 });
 
-// GET all available skills
+// GET all available skills + sync state
 app.get('/api/skills', (req, res) => {
   try {
+    const syncState = readSyncState(PROJECT_ROOT);
+
     if (!fs.existsSync(SKILLS_DIR)) {
-      return res.json({ skills: [] });
+      return res.json({ skills: [], syncState });
     }
 
     const skillFolders = fs
@@ -463,12 +466,25 @@ app.get('/api/skills', (req, res) => {
       }
     }
 
-    return res.json({ skills });
+    return res.json({ skills, syncState });
   } catch (err) {
     console.error('List Skills Error:', err);
     return res
       .status(500)
       .json({ error: err instanceof Error ? err.message : 'Error listing skills' });
+  }
+});
+
+// POST sync skills from lock file
+app.post('/api/skills/sync', requireToolAuth, async (req, res) => {
+  try {
+    const state = await runSync(PROJECT_ROOT);
+    res.json({ success: true, syncState: state });
+  } catch (err) {
+    console.error('Sync Skills Error:', err);
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Failed to sync skills' });
   }
 });
 
