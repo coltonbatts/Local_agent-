@@ -1,6 +1,12 @@
-import type { Message, Metrics, ToolCall } from '../types/chat';
+import type {
+  Message,
+  Metrics,
+  ToolCall,
+  ToolDefinition,
+  ToolExecutionEvent,
+} from '../types/chat';
 
-const TOOL_DEFINITIONS = [
+export const DEFAULT_NATIVE_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
@@ -53,7 +59,7 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
-] as const;
+];
 
 interface GenerationCallbacks {
   appendEmptyAssistant: () => void;
@@ -66,14 +72,42 @@ interface GenerationCallbacks {
 interface RunToolConversationParams {
   initialConversation: Message[];
   modelName: string;
+  tools?: ToolDefinition[];
   toolApiKey?: string;
   callbacks: GenerationCallbacks;
   maxRounds?: number;
 }
 
+interface ToolExecutionApiResponse {
+  event: ToolExecutionEvent;
+  result: unknown;
+}
+
+function createClientSideToolErrorEvent(toolName: string, args: Record<string, unknown>, errorMessage: string): ToolExecutionEvent {
+  const nowIso = new Date().toISOString();
+  return {
+    id: `client_error_${Date.now()}`,
+    sequence: -1,
+    source: toolName.startsWith('mcp.') ? 'mcp' : 'native',
+    tool_name: toolName,
+    mcp_tool_name: null,
+    server_id: null,
+    server_name: null,
+    replay_of: null,
+    args,
+    started_at: nowIso,
+    ended_at: nowIso,
+    duration_ms: 0,
+    status: 'error',
+    error_message: errorMessage,
+    result: { error: errorMessage },
+  };
+}
+
 async function streamAssistantResponse(
   messagesToSend: Message[],
   modelName: string,
+  tools: ToolDefinition[],
   trackMetrics: boolean,
   callbacks: GenerationCallbacks,
 ) {
@@ -85,7 +119,7 @@ async function streamAssistantResponse(
     body: JSON.stringify({
       model: modelName,
       messages: messagesToSend,
-      tools: TOOL_DEFINITIONS,
+      tools,
       stream: true,
       temperature: 0.7,
     }),
@@ -196,9 +230,29 @@ async function streamAssistantResponse(
   return { assistantContent, toolCalls };
 }
 
+async function executeToolCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  toolHeaders: HeadersInit,
+): Promise<ToolExecutionApiResponse> {
+  const res = await fetch('/api/tools/execute', {
+    method: 'POST',
+    headers: toolHeaders,
+    body: JSON.stringify({ toolName, args }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Tool execution failed');
+  }
+
+  return data;
+}
+
 export async function runToolConversation({
   initialConversation,
   modelName,
+  tools,
   toolApiKey,
   callbacks,
   maxRounds = 3,
@@ -208,11 +262,20 @@ export async function runToolConversation({
     ...(toolApiKey ? { 'x-tool-api-key': toolApiKey } : {}),
   };
 
+  const toolsToUse = tools && tools.length > 0 ? tools : DEFAULT_NATIVE_TOOL_DEFINITIONS;
+
   let conversation: Message[] = initialConversation;
   let rounds = 0;
 
   while (true) {
-    const { assistantContent, toolCalls } = await streamAssistantResponse(conversation, modelName, rounds === 0, callbacks);
+    const { assistantContent, toolCalls } = await streamAssistantResponse(
+      conversation,
+      modelName,
+      toolsToUse,
+      rounds === 0,
+      callbacks,
+    );
+
     conversation = [
       ...conversation,
       {
@@ -231,34 +294,32 @@ export async function runToolConversation({
     }
 
     for (const tc of toolCalls) {
-      let args;
+      let args: Record<string, unknown>;
       try {
         args = JSON.parse(tc.function.arguments);
       } catch {
         args = {};
       }
 
-      let responseContent = '';
+      let execution: ToolExecutionApiResponse;
       try {
-        const res = await fetch(`/api/tools/${tc.function.name}`, {
-          method: 'POST',
-          headers: toolHeaders,
-          body: JSON.stringify(args),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Tool execution failed');
-        responseContent = JSON.stringify(data);
+        execution = await executeToolCall(tc.function.name, args, toolHeaders);
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown tool execution error';
-        responseContent = JSON.stringify({ error: errorMessage });
+        execution = {
+          event: createClientSideToolErrorEvent(tc.function.name, args, errorMessage),
+          result: { error: errorMessage },
+        };
       }
 
       const toolMessage: Message = {
         role: 'tool',
         tool_call_id: tc.id,
         name: tc.function.name,
-        content: responseContent,
+        content: JSON.stringify(execution.result),
+        tool_event: execution.event,
       };
+
       conversation = [...conversation, toolMessage];
       callbacks.appendMessage(toolMessage);
     }

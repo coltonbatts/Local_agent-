@@ -1,10 +1,20 @@
-import type { Metrics } from '../types/chat';
+import { McpSettingsPanel } from './McpSettingsPanel';
+import type { McpServerConfig, McpToolsGroup, Metrics } from '../types/chat';
 
 interface MetricsSidebarProps {
   metrics: Metrics;
   isGenerating: boolean;
   isOpen?: boolean;
   onClose?: () => void;
+  mcpServers: McpServerConfig[];
+  mcpToolsGrouped: McpToolsGroup[];
+  mcpToolErrors: string[];
+  isToolsLoading: boolean;
+  onRefreshTools: () => Promise<void>;
+  onCreateMcpServer: (payload: Partial<McpServerConfig>) => Promise<void>;
+  onUpdateMcpServer: (id: string, patch: Partial<McpServerConfig>) => Promise<void>;
+  onDeleteMcpServer: (id: string) => Promise<void>;
+  onTestMcpServer: (id: string) => Promise<{ toolCount: number; toolNames: string[] }>;
 }
 
 function formatValue(value: number | null, decimals = 2) {
@@ -12,7 +22,21 @@ function formatValue(value: number | null, decimals = 2) {
   return value.toFixed(decimals);
 }
 
-export function MetricsSidebar({ metrics, isGenerating, isOpen, onClose }: MetricsSidebarProps) {
+export function MetricsSidebar({
+  metrics,
+  isGenerating,
+  isOpen,
+  onClose,
+  mcpServers,
+  mcpToolsGrouped,
+  mcpToolErrors,
+  isToolsLoading,
+  onRefreshTools,
+  onCreateMcpServer,
+  onUpdateMcpServer,
+  onDeleteMcpServer,
+  onTestMcpServer,
+}: MetricsSidebarProps) {
   return (
     <>
       {isOpen && <div className="mobile-overlay" onClick={onClose} />}
@@ -52,6 +76,18 @@ export function MetricsSidebar({ metrics, isGenerating, isOpen, onClose }: Metri
             <span className="metric-value">{metrics.totalTokens}</span>
           </div>
         </div>
+
+        <McpSettingsPanel
+          servers={mcpServers}
+          groupedTools={mcpToolsGrouped}
+          toolErrors={mcpToolErrors}
+          isLoading={isToolsLoading}
+          onRefresh={onRefreshTools}
+          onCreateServer={onCreateMcpServer}
+          onUpdateServer={onUpdateMcpServer}
+          onDeleteServer={onDeleteMcpServer}
+          onTestServer={onTestMcpServer}
+        />
       </aside>
     </>
   );

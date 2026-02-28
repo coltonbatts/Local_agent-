@@ -16,6 +16,7 @@ dist-ssr
 
 # App data / generated
 chats/
+config/
 
 # Local agent/tooling folders
 .agent/

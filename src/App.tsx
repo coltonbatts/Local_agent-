@@ -4,8 +4,18 @@ import { ChatHistorySidebar } from './components/ChatHistorySidebar';
 import { ChatInput } from './components/ChatInput';
 import { MessageList } from './components/MessageList';
 import { MetricsSidebar } from './components/MetricsSidebar';
-import type { ChatMetadata, Message, Metrics, Skill, ToolCall } from './types/chat';
-import { runToolConversation } from './utils/chatGeneration';
+import type {
+  ChatMetadata,
+  McpServerConfig,
+  McpToolsGroup,
+  Message,
+  Metrics,
+  Skill,
+  ToolCall,
+  ToolDefinition,
+  ToolExecutionEvent,
+} from './types/chat';
+import { DEFAULT_NATIVE_TOOL_DEFINITIONS, runToolConversation } from './utils/chatGeneration';
 import './App.css';
 
 const LOCAL_STORAGE_MESSAGES_KEY = 'chatbot_messages';
@@ -17,6 +27,32 @@ function createDefaultMetrics(): Metrics {
     totalTokens: 0,
     totalLatency: null,
   };
+}
+
+async function readJsonResponse<T = Record<string, unknown>>(res: Response, defaultError: string): Promise<T> {
+  const raw = await res.text();
+  let data: Record<string, unknown> = {};
+
+  if (raw.trim().length > 0) {
+    try {
+      data = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      const snippet = raw.slice(0, 180).replace(/\s+/g, ' ');
+      throw new Error(`${defaultError}. Non-JSON response (HTTP ${res.status}): ${snippet}`);
+    }
+  }
+
+  if (!res.ok) {
+    const backendError = typeof data.error === 'string' ? data.error : null;
+    throw new Error(backendError || `${defaultError} (HTTP ${res.status})`);
+  }
+
+  return data as T;
+}
+
+interface ReplayToolResponse {
+  event?: ToolExecutionEvent;
+  result?: unknown;
 }
 
 function App() {
@@ -32,8 +68,25 @@ function App() {
   const [currentChatFilename, setCurrentChatFilename] = useState<string | null>(null);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [toolDefinitions, setToolDefinitions] = useState<ToolDefinition[]>(DEFAULT_NATIVE_TOOL_DEFINITIONS);
+  const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
+  const [mcpToolsGrouped, setMcpToolsGrouped] = useState<McpToolsGroup[]>([]);
+  const [mcpToolErrors, setMcpToolErrors] = useState<string[]>([]);
+  const [isToolsLoading, setIsToolsLoading] = useState(false);
+  const [replayingEventId, setReplayingEventId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const TOOL_API_KEY = import.meta.env.VITE_TOOL_API_KEY as string | undefined;
+
+  const buildToolHeaders = useCallback((withJson = false): HeadersInit => {
+    const headers: Record<string, string> = {};
+    if (withJson) {
+      headers['Content-Type'] = 'application/json';
+    }
+    if (TOOL_API_KEY) {
+      headers['x-tool-api-key'] = TOOL_API_KEY;
+    }
+    return headers;
+  }, [TOOL_API_KEY]);
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -71,11 +124,64 @@ function App() {
     }
   }, []);
 
+  const refreshTooling = useCallback(async () => {
+    setIsToolsLoading(true);
+
+    try {
+      const [serversRes, groupedToolsRes, definitionsRes] = await Promise.all([
+        fetch('/api/mcp/servers', { headers: buildToolHeaders() }),
+        fetch('/api/mcp/tools', { headers: buildToolHeaders() }),
+        fetch('/api/tools/definitions', { headers: buildToolHeaders() }),
+      ]);
+
+      const [serversData, groupedToolsData, definitionsData] = await Promise.all([
+        readJsonResponse(serversRes, 'Failed to load MCP servers'),
+        readJsonResponse(groupedToolsRes, 'Failed to load MCP tools'),
+        readJsonResponse(definitionsRes, 'Failed to load model tool definitions'),
+      ]);
+
+      if (serversRes.ok && Array.isArray(serversData.servers)) {
+        setMcpServers(serversData.servers);
+      }
+
+      if (groupedToolsRes.ok && Array.isArray(groupedToolsData.grouped)) {
+        setMcpToolsGrouped(groupedToolsData.grouped);
+      } else {
+        setMcpToolsGrouped([]);
+      }
+
+      if (definitionsRes.ok && Array.isArray(definitionsData.tools) && definitionsData.tools.length > 0) {
+        setToolDefinitions(definitionsData.tools);
+      } else {
+        setToolDefinitions(DEFAULT_NATIVE_TOOL_DEFINITIONS);
+      }
+
+      const errors = [
+        ...(Array.isArray(groupedToolsData.errors)
+          ? groupedToolsData.errors.map((error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`)
+          : []),
+        ...(Array.isArray(definitionsData.errors)
+          ? definitionsData.errors.map((error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`)
+          : []),
+      ];
+      setMcpToolErrors(errors);
+    } catch (error) {
+      console.error('Failed to refresh MCP tooling', error);
+      setToolDefinitions(DEFAULT_NATIVE_TOOL_DEFINITIONS);
+      setMcpToolsGrouped([]);
+      const message = error instanceof Error ? error.message : 'Unable to fetch MCP tools';
+      setMcpToolErrors([message]);
+    } finally {
+      setIsToolsLoading(false);
+    }
+  }, [buildToolHeaders]);
+
   useEffect(() => {
     fetchSkills();
     fetchModel();
     fetchChats();
-  }, [fetchSkills, fetchModel, fetchChats]);
+    void refreshTooling();
+  }, [fetchSkills, fetchModel, fetchChats, refreshTooling]);
 
   useEffect(() => {
     try {
@@ -119,10 +225,7 @@ function App() {
 
       const res = await fetch('/api/chats', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(TOOL_API_KEY ? { 'x-tool-api-key': TOOL_API_KEY } : {}),
-        },
+        headers: buildToolHeaders(true),
         body: JSON.stringify({ messages, title }),
       });
       const data = await res.json();
@@ -185,6 +288,81 @@ function App() {
     return requestMessages;
   };
 
+  const createMcpServer = useCallback(async (payload: Partial<McpServerConfig>) => {
+    const res = await fetch('/api/mcp/servers', {
+      method: 'POST',
+      headers: buildToolHeaders(true),
+      body: JSON.stringify(payload),
+    });
+    await readJsonResponse(res, 'Failed to create MCP server');
+    await refreshTooling();
+  }, [buildToolHeaders, refreshTooling]);
+
+  const updateMcpServer = useCallback(async (id: string, patch: Partial<McpServerConfig>) => {
+    const res = await fetch(`/api/mcp/servers/${id}`, {
+      method: 'PUT',
+      headers: buildToolHeaders(true),
+      body: JSON.stringify(patch),
+    });
+    await readJsonResponse(res, 'Failed to update MCP server');
+    await refreshTooling();
+  }, [buildToolHeaders, refreshTooling]);
+
+  const deleteMcpServer = useCallback(async (id: string) => {
+    const res = await fetch(`/api/mcp/servers/${id}`, {
+      method: 'DELETE',
+      headers: buildToolHeaders(),
+    });
+    await readJsonResponse(res, 'Failed to delete MCP server');
+    await refreshTooling();
+  }, [buildToolHeaders, refreshTooling]);
+
+  const testMcpServer = useCallback(async (id: string) => {
+    const res = await fetch(`/api/mcp/servers/${id}/test`, {
+      method: 'POST',
+      headers: buildToolHeaders(true),
+      body: JSON.stringify({}),
+    });
+    const data = await readJsonResponse(res, 'MCP server test failed');
+    if (data.success !== true) {
+      throw new Error(typeof data.error === 'string' ? data.error : 'MCP server test failed');
+    }
+    await refreshTooling();
+    return {
+      toolCount: Number(data.toolCount ?? 0),
+      toolNames: Array.isArray(data.toolNames) ? data.toolNames : [],
+    };
+  }, [buildToolHeaders, refreshTooling]);
+
+  const replayToolCall = useCallback(async (eventId: string) => {
+    if (!eventId || isGenerating) return;
+
+    setReplayingEventId(eventId);
+    try {
+      const res = await fetch(`/api/tools/replay/${eventId}`, {
+        method: 'POST',
+        headers: buildToolHeaders(true),
+        body: JSON.stringify({}),
+      });
+      const data = await readJsonResponse<ReplayToolResponse>(res, 'Failed to replay tool call');
+
+      const replayMessage: Message = {
+        role: 'tool',
+        tool_call_id: `replay_${Date.now()}`,
+        name: data.event?.tool_name ?? 'tool_replay',
+        content: JSON.stringify(data.result ?? {}),
+        tool_event: data.event,
+      };
+
+      setMessages((prev) => [...prev, replayMessage]);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown replay error';
+      setMessages((prev) => [...prev, { role: 'assistant', content: `⚠️ Replay failed: ${errorMessage}` }]);
+    } finally {
+      setReplayingEventId(null);
+    }
+  }, [buildToolHeaders, isGenerating]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isGenerating) return;
@@ -202,6 +380,7 @@ function App() {
       await runToolConversation({
         initialConversation: requestMessages,
         modelName: modelName,
+        tools: toolDefinitions,
         toolApiKey: TOOL_API_KEY,
         callbacks: {
           appendEmptyAssistant: () => {
@@ -280,6 +459,8 @@ function App() {
           messages={messages}
           isGenerating={isGenerating}
           messagesEndRef={messagesEndRef}
+          onReplayToolCall={replayToolCall}
+          replayingEventId={replayingEventId}
         />
 
         <div className="input-area">
@@ -298,6 +479,15 @@ function App() {
         isGenerating={isGenerating}
         isOpen={isRightSidebarOpen}
         onClose={() => setIsRightSidebarOpen(false)}
+        mcpServers={mcpServers}
+        mcpToolsGrouped={mcpToolsGrouped}
+        mcpToolErrors={mcpToolErrors}
+        isToolsLoading={isToolsLoading}
+        onRefreshTools={refreshTooling}
+        onCreateMcpServer={createMcpServer}
+        onUpdateMcpServer={updateMcpServer}
+        onDeleteMcpServer={deleteMcpServer}
+        onTestMcpServer={testMcpServer}
       />
     </div>
   );
