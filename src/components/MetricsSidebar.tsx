@@ -27,7 +27,6 @@ interface MetricsSidebarProps {
   toolApiKey?: string;
 }
 
-
 function formatValue(value: number | null, decimals = 2) {
   if (value === null) return '--';
   return value.toFixed(decimals);
@@ -64,7 +63,11 @@ export function MetricsSidebar({
             Inspector {isGenerating && <span className="status-dot generating"></span>}
           </h2>
           {onClose && (
-            <button className="sidebar-toggle-mobile" onClick={onClose} aria-label="Close Inspector">
+            <button
+              className="sidebar-toggle-mobile"
+              onClick={onClose}
+              aria-label="Close Inspector"
+            >
               ✕
             </button>
           )}
@@ -74,19 +77,22 @@ export function MetricsSidebar({
           <div className="metric-row">
             <span className="metric-label">TTFT</span>
             <span className="metric-value">
-              {formatValue(metrics.ttft, 0)}<span className="metric-unit">ms</span>
+              {formatValue(metrics.ttft, 0)}
+              <span className="metric-unit">ms</span>
             </span>
           </div>
           <div className="metric-row">
             <span className="metric-label">Speed</span>
             <span className="metric-value">
-              {formatValue(metrics.tokensPerSec)}<span className="metric-unit">t/s</span>
+              {formatValue(metrics.tokensPerSec)}
+              <span className="metric-unit">t/s</span>
             </span>
           </div>
           <div className="metric-row">
             <span className="metric-label">Latency</span>
             <span className="metric-value">
-              {formatValue(metrics.totalLatency, 0)}<span className="metric-unit">ms</span>
+              {formatValue(metrics.totalLatency, 0)}
+              <span className="metric-unit">ms</span>
             </span>
           </div>
           <div className="metric-row">

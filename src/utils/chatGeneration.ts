@@ -1,10 +1,4 @@
-import type {
-  Message,
-  Metrics,
-  ToolCall,
-  ToolDefinition,
-  ToolExecutionEvent,
-} from '../types/chat';
+import type { Message, Metrics, ToolCall, ToolDefinition, ToolExecutionEvent } from '../types/chat';
 
 /** Empty fallback when /api/tools/definitions fails. Backend is the single source of truth. */
 const EMPTY_TOOL_DEFINITIONS: ToolDefinition[] = [];
@@ -24,6 +18,7 @@ interface RunToolConversationParams {
   toolApiKey?: string;
   callbacks: GenerationCallbacks;
   maxRounds?: number;
+  maxToolCallsPerMessage?: number;
   temperature?: number;
   maxTokens?: number;
   toolsEnabled?: boolean;
@@ -34,7 +29,11 @@ interface ToolExecutionApiResponse {
   result: unknown;
 }
 
-function createClientSideToolErrorEvent(toolName: string, args: Record<string, unknown>, errorMessage: string): ToolExecutionEvent {
+function createClientSideToolErrorEvent(
+  toolName: string,
+  args: Record<string, unknown>,
+  errorMessage: string
+): ToolExecutionEvent {
   const nowIso = new Date().toISOString();
   return {
     id: `client_error_${Date.now()}`,
@@ -62,7 +61,7 @@ async function streamAssistantResponse(
   trackMetrics: boolean,
   callbacks: GenerationCallbacks,
   temperature: number,
-  maxTokens: number,
+  maxTokens: number
 ) {
   callbacks.appendEmptyAssistant();
 
@@ -152,7 +151,10 @@ async function streamAssistantResponse(
           }
 
           if (delta?.content || delta?.tool_calls) {
-            callbacks.updateLastAssistant(assistantContent, toolCalls.length > 0 ? toolCalls : undefined);
+            callbacks.updateLastAssistant(
+              assistantContent,
+              toolCalls.length > 0 ? toolCalls : undefined
+            );
 
             if (trackMetrics && firstTokenTime !== null) {
               const currentTime = performance.now();
@@ -191,7 +193,7 @@ async function streamAssistantResponse(
 async function executeToolCall(
   toolName: string,
   args: Record<string, unknown>,
-  toolHeaders: HeadersInit,
+  toolHeaders: HeadersInit
 ): Promise<ToolExecutionApiResponse> {
   const res = await fetch('/api/tools/execute', {
     method: 'POST',
@@ -201,7 +203,8 @@ async function executeToolCall(
 
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.error || 'Tool execution failed');
+    const msg = data.hint ?? data.error ?? 'Tool execution failed';
+    throw new Error(msg);
   }
 
   return data;
@@ -214,6 +217,7 @@ export async function runToolConversation({
   toolApiKey,
   callbacks,
   maxRounds = 3,
+  maxToolCallsPerMessage = 10,
   temperature = 0.7,
   maxTokens = 4096,
   toolsEnabled = true,
@@ -223,8 +227,7 @@ export async function runToolConversation({
     ...(toolApiKey ? { 'x-tool-api-key': toolApiKey } : {}),
   };
 
-  const toolsToUse =
-    toolsEnabled && tools && tools.length > 0 ? tools : EMPTY_TOOL_DEFINITIONS;
+  const toolsToUse = toolsEnabled && tools && tools.length > 0 ? tools : EMPTY_TOOL_DEFINITIONS;
 
   let conversation: Message[] = initialConversation;
   let rounds = 0;
@@ -237,7 +240,7 @@ export async function runToolConversation({
       rounds === 0,
       callbacks,
       temperature,
-      maxTokens,
+      maxTokens
     );
 
     conversation = [
@@ -253,16 +256,48 @@ export async function runToolConversation({
 
     rounds += 1;
     if (rounds > maxRounds) {
-      callbacks.appendAssistantWarning('⚠️ Tool loop stopped after 3 rounds to prevent runaway execution.');
+      callbacks.appendAssistantWarning(
+        `⚠️ Tool loop stopped after ${maxRounds} rounds to prevent runaway execution.`
+      );
       break;
     }
 
-    for (const tc of toolCalls) {
+    const toolsByName = new Map((tools ?? []).map((t) => [t.function.name, t.function]));
+    let toolCallsToRun = toolCalls;
+    if (toolCalls.length > maxToolCallsPerMessage) {
+      toolCallsToRun = toolCalls.slice(0, maxToolCallsPerMessage);
+      callbacks.appendAssistantWarning(
+        `⚠️ Capped at ${maxToolCallsPerMessage} tool calls per message (model requested ${toolCalls.length}).`
+      );
+    }
+
+    for (const tc of toolCallsToRun) {
       let args: Record<string, unknown>;
       try {
         args = JSON.parse(tc.function.arguments);
       } catch {
         args = {};
+      }
+
+      const fnDef = toolsByName.get(tc.function.name);
+      if (fnDef?.requires_confirmation) {
+        const toolMessage: Message = {
+          role: 'tool',
+          tool_call_id: tc.id,
+          name: tc.function.name,
+          content: JSON.stringify({
+            error: 'Tool requires user confirmation. Skipped.',
+            code: 'REQUIRES_CONFIRMATION',
+          }),
+          tool_event: createClientSideToolErrorEvent(
+            tc.function.name,
+            args,
+            'Tool requires user confirmation. Skipped.'
+          ),
+        };
+        conversation = [...conversation, toolMessage];
+        callbacks.appendMessage(toolMessage);
+        continue;
       }
 
       let execution: ToolExecutionApiResponse;

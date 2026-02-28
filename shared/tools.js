@@ -4,12 +4,14 @@
  */
 import { z } from 'zod';
 
+/** Optional metadata: requires_confirmation = true for risky tools (e.g. write, delete, external APIs). */
 export const NATIVE_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
       name: 'read_file',
       description: 'Read the contents of a file on the local file system.',
+      requires_confirmation: false,
       parameters: {
         type: 'object',
         properties: {
@@ -28,6 +30,7 @@ export const NATIVE_TOOL_DEFINITIONS = [
       name: 'brave_search',
       description:
         'Search the web using the Brave Search API. Use this to find current information, news, or answer questions requiring internet access.',
+      requires_confirmation: false,
       parameters: {
         type: 'object',
         properties: {
@@ -45,6 +48,7 @@ export const NATIVE_TOOL_DEFINITIONS = [
     function: {
       name: 'load_skill',
       description: 'Load the instructions (SKILL.md) for a specific agent skill.',
+      requires_confirmation: false,
       parameters: {
         type: 'object',
         properties: {

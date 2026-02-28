@@ -98,7 +98,9 @@ button {
   border-radius: var(--radius-sm);
   padding: var(--space-xs) var(--space-sm);
   cursor: pointer;
-  transition: background-color var(--anim-fast), border-color var(--anim-fast);
+  transition:
+    background-color var(--anim-fast),
+    border-color var(--anim-fast);
   font-size: 0.85rem;
 }
 

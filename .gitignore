@@ -17,6 +17,7 @@ dist-ssr
 # App data / generated
 chats/
 config/
+Sandbox/
 
 # Local agent/tooling folders
 .agent/

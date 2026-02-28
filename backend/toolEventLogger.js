@@ -4,7 +4,15 @@ import path from 'path';
 const DEFAULT_MAX_STRING = 8_000;
 const DEFAULT_MAX_ARRAY = 200;
 const REDACTED = '[REDACTED]';
-const SENSITIVE_KEY_PATTERNS = ['password', 'secret', 'token', 'apikey', 'api_key', 'authorization', 'cookie'];
+const SENSITIVE_KEY_PATTERNS = [
+  'password',
+  'secret',
+  'token',
+  'apikey',
+  'api_key',
+  'authorization',
+  'cookie',
+];
 
 function ensureLogFile(logFilePath) {
   const logDir = path.dirname(logFilePath);

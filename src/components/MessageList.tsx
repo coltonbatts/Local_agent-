@@ -66,10 +66,14 @@ export function MessageList({
       )}
 
       {messages.map((msg, idx) => {
-        const isLastAssistantMessage = isGenerating && idx === messages.length - 1 && msg.role === 'assistant';
+        const isLastAssistantMessage =
+          isGenerating && idx === messages.length - 1 && msg.role === 'assistant';
 
         return (
-          <div key={idx} className={`message ${msg.role} ${isLastAssistantMessage ? 'generating' : ''}`}>
+          <div
+            key={idx}
+            className={`message ${msg.role} ${isLastAssistantMessage ? 'generating' : ''}`}
+          >
             {msg.role === 'tool' ? (
               (() => {
                 const event = msg.tool_event;
@@ -80,24 +84,28 @@ export function MessageList({
                 return (
                   <ToolResultDisplay
                     icon="🛠"
-                    summary={(
+                    summary={
                       <>
                         <span className="tool-name" title={event?.tool_name || msg.name}>
                           {truncateName(getToolSummary(msg, event))}
                         </span>
                         {event && (
                           <span className="tool-meta-inline">
-                            #{event.sequence > 0 ? event.sequence : 'local'} · {event.status} · {formatDuration(event.duration_ms)}
+                            #{event.sequence > 0 ? event.sequence : 'local'} · {event.status} ·{' '}
+                            {formatDuration(event.duration_ms)}
                           </span>
                         )}
                       </>
-                    )}
-                    content={(
+                    }
+                    content={
                       <div className="tool-event-body">
                         {event && (
                           <div className="tool-event-meta">
                             <div>Started: {new Date(event.started_at).toLocaleString()}</div>
-                            <div>Ended: {event.ended_at ? new Date(event.ended_at).toLocaleString() : '--'}</div>
+                            <div>
+                              Ended:{' '}
+                              {event.ended_at ? new Date(event.ended_at).toLocaleString() : '--'}
+                            </div>
                             <div>Status: {event.status}</div>
                             {event.error_message && <div>Error: {event.error_message}</div>}
                             {event.replay_of && <div>Replay of: {event.replay_of}</div>}
@@ -126,10 +134,12 @@ export function MessageList({
 
                         <div className="tool-event-section">
                           <div className="tool-event-label">Result</div>
-                          <pre className="tool-result-content">{toPrettyJson(resultForDisplay)}</pre>
+                          <pre className="tool-result-content">
+                            {toPrettyJson(resultForDisplay)}
+                          </pre>
                         </div>
                       </div>
-                    )}
+                    }
                     contentClassName="tool-result-content-wrapper"
                   />
                 );
@@ -151,10 +161,10 @@ export function MessageList({
                   </div>
                 )}
 
-                {msg.content && (
-                  msg.role === 'assistant' ? (
+                {msg.content &&
+                  (msg.role === 'assistant' ? (
                     <div className="parsed-content">
-                      {parseContentWithThoughts(msg.content).map((part, partIndex) => (
+                      {parseContentWithThoughts(msg.content).map((part, partIndex) =>
                         part.type === 'think' ? (
                           <ToolResultDisplay
                             key={partIndex}
@@ -171,12 +181,11 @@ export function MessageList({
                             </div>
                           )
                         )
-                      ))}
+                      )}
                     </div>
                   ) : (
                     <div className="message-bubble user-bubble">{msg.content}</div>
-                  )
-                )}
+                  ))}
               </div>
             )}
           </div>
@@ -185,7 +194,10 @@ export function MessageList({
 
       {isGenerating && (
         <div className="message assistant">
-          <div className="message-content" style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          <div
+            className="message-content"
+            style={{ display: 'flex', alignItems: 'center', height: '100%' }}
+          >
             {messages[messages.length - 1]?.content === '' && (
               <div className="assistant-bubble" style={{ display: 'flex', alignItems: 'center' }}>
                 <div className="typing-indicator">

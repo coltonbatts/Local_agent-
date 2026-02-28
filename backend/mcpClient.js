@@ -38,7 +38,9 @@ function createTransport(serverConfig) {
   }
 
   if (!serverConfig.url) {
-    throw new Error(`MCP server '${serverConfig.id}' is missing 'url' for ${serverConfig.transport} transport`);
+    throw new Error(
+      `MCP server '${serverConfig.id}' is missing 'url' for ${serverConfig.transport} transport`
+    );
   }
 
   let parsedUrl;
@@ -101,7 +103,7 @@ export async function list_tools(connection, options = {}) {
   const response = await withTimeout(
     connection.client.listTools(),
     timeoutMs,
-    `list_tools(${connection.serverConfig.id})`,
+    `list_tools(${connection.serverConfig.id})`
   );
 
   const tools = Array.isArray(response.tools) ? response.tools : [];
@@ -125,7 +127,7 @@ export async function call_tool(connection, toolName, argsJson, options = {}) {
       arguments: argsJson && typeof argsJson === 'object' ? argsJson : {},
     }),
     timeoutMs,
-    `call_tool(${connection.serverConfig.id}/${toolName})`,
+    `call_tool(${connection.serverConfig.id}/${toolName})`
   );
 
   return normalizeToolResult(result);

@@ -23,7 +23,10 @@ interface ChatHistorySidebarProps {
 function formatDate(timestamp: string): string {
   let date = new Date(timestamp);
   if (isNaN(date.getTime()) && typeof timestamp === 'string') {
-    const fixed = timestamp.replace(/(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/, '$1T$2:$3:$4.$5Z');
+    const fixed = timestamp.replace(
+      /(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/,
+      '$1T$2:$3:$4.$5Z'
+    );
     date = new Date(fixed);
   }
   return isNaN(date.getTime()) ? 'Unknown' : date.toLocaleDateString();
@@ -52,7 +55,7 @@ export function ChatHistorySidebar({
   const chatAutosave = config?.chatAutosave ?? false;
   const isScratchpad = !currentChatFilename;
   const currentTitle = currentChatFilename
-    ? chats.find((c) => c.filename === currentChatFilename)?.title ?? 'Project'
+    ? (chats.find((c) => c.filename === currentChatFilename)?.title ?? 'Project')
     : 'Scratchpad';
 
   const handleRenameStart = (chat: ChatMetadata) => {
@@ -93,7 +96,11 @@ export function ChatHistorySidebar({
               + New
             </button>
             {onClose && (
-              <button className="sidebar-toggle-mobile" onClick={onClose} aria-label="Close Sidebar">
+              <button
+                className="sidebar-toggle-mobile"
+                onClick={onClose}
+                aria-label="Close Sidebar"
+              >
                 ✕
               </button>
             )}
@@ -102,7 +109,11 @@ export function ChatHistorySidebar({
 
         <div className="chats-mode-indicator">
           <span className="chats-mode-label">{isScratchpad ? 'Scratchpad' : 'Project'}</span>
-          {!isScratchpad && <span className="chats-mode-title" title={currentTitle}>{currentTitle}</span>}
+          {!isScratchpad && (
+            <span className="chats-mode-title" title={currentTitle}>
+              {currentTitle}
+            </span>
+          )}
         </div>
 
         <div className="chats-actions">
@@ -115,7 +126,9 @@ export function ChatHistorySidebar({
             />
             <span>Autosave</span>
           </label>
-          <span className="chats-autosave-hint">{chatAutosave ? 'Saving to filesystem' : 'Manual save only'}</span>
+          <span className="chats-autosave-hint">
+            {chatAutosave ? 'Saving to filesystem' : 'Manual save only'}
+          </span>
         </div>
 
         <div className="chats-save-actions">
@@ -145,7 +158,9 @@ export function ChatHistorySidebar({
         </div>
 
         <div className="chat-list">
-          {chats.length === 0 && <div className="empty-history">No projects yet. Save to create one.</div>}
+          {chats.length === 0 && (
+            <div className="empty-history">No projects yet. Save to create one.</div>
+          )}
           {chats.map((chat) => (
             <div
               key={chat.filename}
@@ -165,8 +180,12 @@ export function ChatHistorySidebar({
                     className="chat-item-edit-input"
                   />
                   <div className="chat-item-edit-actions">
-                    <button type="button" onClick={handleRenameSubmit}>✓</button>
-                    <button type="button" onClick={handleRenameCancel}>✕</button>
+                    <button type="button" onClick={handleRenameSubmit}>
+                      ✓
+                    </button>
+                    <button type="button" onClick={handleRenameCancel}>
+                      ✕
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -178,7 +197,9 @@ export function ChatHistorySidebar({
                       if (onClose) onClose();
                     }}
                   >
-                    <div className="chat-item-title" title={chat.title}>{chat.title}</div>
+                    <div className="chat-item-title" title={chat.title}>
+                      {chat.title}
+                    </div>
                     <div className="chat-item-date">{formatDate(chat.timestamp)}</div>
                   </div>
                   <div className="chat-item-actions">

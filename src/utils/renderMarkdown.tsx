@@ -4,6 +4,8 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
 import type { ReactNode } from 'react';
 
+/** Raw HTML is never rendered. Do not add rehype-raw – it would allow XSS. */
+
 interface MarkdownCodeProps {
   inline?: boolean;
   className?: string;
@@ -32,11 +34,9 @@ export function renderMarkdown(text: string) {
               </SyntaxHighlighter>
             </div>
           ) : (
-            <code className={className}>
-              {children}
-            </code>
+            <code className={className}>{children}</code>
           );
-        }
+        },
       }}
     >
       {text}

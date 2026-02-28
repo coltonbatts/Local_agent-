@@ -180,8 +180,12 @@ export function McpSettingsPanel({
       <div className="mcp-panel-header-row">
         <h3 className="mcp-panel-title">MCP Servers</h3>
         <div className="mcp-panel-actions">
-          <button onClick={() => setIsFormOpen((prev) => !prev)}>{isFormOpen ? '[CLOSE]' : '[ADD]'}</button>
-          <button onClick={() => void onRefresh()} disabled={isLoading}>{isLoading ? '[…]' : '[REFRESH]'}</button>
+          <button onClick={() => setIsFormOpen((prev) => !prev)}>
+            {isFormOpen ? '[CLOSE]' : '[ADD]'}
+          </button>
+          <button onClick={() => void onRefresh()} disabled={isLoading}>
+            {isLoading ? '[…]' : '[REFRESH]'}
+          </button>
         </div>
       </div>
 
@@ -193,7 +197,9 @@ export function McpSettingsPanel({
             ID
             <input
               value={draft.id}
-              onChange={(event) => setDraft((prev) => ({ ...prev, id: event.target.value.toLowerCase() }))}
+              onChange={(event) =>
+                setDraft((prev) => ({ ...prev, id: event.target.value.toLowerCase() }))
+              }
               placeholder="filesystem"
             />
           </label>
@@ -209,7 +215,12 @@ export function McpSettingsPanel({
             Transport
             <select
               value={draft.transport}
-              onChange={(event) => setDraft((prev) => ({ ...prev, transport: event.target.value as McpServerConfig['transport'] }))}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  transport: event.target.value as McpServerConfig['transport'],
+                }))
+              }
             >
               <option value="stdio">stdio</option>
               <option value="http">http</option>
@@ -223,7 +234,9 @@ export function McpSettingsPanel({
                 Command
                 <input
                   value={draft.command}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, command: event.target.value }))}
+                  onChange={(event) =>
+                    setDraft((prev) => ({ ...prev, command: event.target.value }))
+                  }
                   placeholder="npx"
                 />
               </label>
@@ -231,7 +244,9 @@ export function McpSettingsPanel({
                 Args
                 <input
                   value={draft.argsText}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, argsText: event.target.value }))}
+                  onChange={(event) =>
+                    setDraft((prev) => ({ ...prev, argsText: event.target.value }))
+                  }
                   placeholder="-y @modelcontextprotocol/server-filesystem /Users/you"
                 />
               </label>
@@ -239,7 +254,9 @@ export function McpSettingsPanel({
                 Env (KEY=VALUE per line)
                 <textarea
                   value={draft.envText}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, envText: event.target.value }))}
+                  onChange={(event) =>
+                    setDraft((prev) => ({ ...prev, envText: event.target.value }))
+                  }
                   rows={3}
                 />
               </label>
@@ -259,7 +276,9 @@ export function McpSettingsPanel({
             Capabilities Warning
             <textarea
               value={draft.capabilities_warning}
-              onChange={(event) => setDraft((prev) => ({ ...prev, capabilities_warning: event.target.value }))}
+              onChange={(event) =>
+                setDraft((prev) => ({ ...prev, capabilities_warning: event.target.value }))
+              }
               rows={2}
               placeholder="This server can access local files and run shell commands."
             />
@@ -279,7 +298,9 @@ export function McpSettingsPanel({
               <div className="mcp-server-head">
                 <div>
                   <div className="mcp-server-name">{server.name}</div>
-                  <div className="mcp-server-id">{server.id} · {server.transport}</div>
+                  <div className="mcp-server-id">
+                    {server.id} · {server.transport}
+                  </div>
                 </div>
                 <label className="mcp-toggle">
                   <input
@@ -294,7 +315,9 @@ export function McpSettingsPanel({
 
               <div className="mcp-server-details">
                 {server.transport === 'stdio' ? (
-                  <code>{server.command} {(server.args ?? []).join(' ')}</code>
+                  <code>
+                    {server.command} {(server.args ?? []).join(' ')}
+                  </code>
                 ) : (
                   <code>{server.url}</code>
                 )}
@@ -304,13 +327,15 @@ export function McpSettingsPanel({
               </div>
 
               <div className="mcp-server-actions">
-                <button onClick={() => void testServer(server.id)} disabled={isBusy}>[TEST]</button>
-                <button onClick={() => void deleteServer(server.id)} disabled={isBusy}>[DELETE]</button>
+                <button onClick={() => void testServer(server.id)} disabled={isBusy}>
+                  [TEST]
+                </button>
+                <button onClick={() => void deleteServer(server.id)} disabled={isBusy}>
+                  [DELETE]
+                </button>
               </div>
 
-              {test && (
-                <div className={`mcp-test-result ${test.status}`}>{test.message}</div>
-              )}
+              {test && <div className={`mcp-test-result ${test.status}`}>{test.message}</div>}
             </div>
           );
         })}
@@ -355,11 +380,15 @@ export function McpSettingsPanel({
               <div className="mcp-group-list">
                 {filteredGroups.map((group) => (
                   <div key={group.server_id} className="mcp-tool-group">
-                    <div className="mcp-tool-group-title">{group.server_name} ({group.server_id})</div>
+                    <div className="mcp-tool-group-title">
+                      {group.server_name} ({group.server_id})
+                    </div>
                     {group.tools.map((tool) => (
                       <div className="mcp-tool-row" key={`${tool.server_id}.${tool.tool_name}`}>
                         <div className="mcp-tool-name">{tool.tool_name}</div>
-                        <div className="mcp-tool-description">{tool.description || 'No description provided.'}</div>
+                        <div className="mcp-tool-description">
+                          {tool.description || 'No description provided.'}
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -19,7 +19,4 @@ export type ToolName = NativeToolName | string;
 export const NATIVE_TOOL_DEFINITIONS: ToolDefinition[];
 export const NATIVE_TOOL_NAMES: readonly NativeToolName[];
 
-export function validateToolArgs(
-  toolName: NativeToolName,
-  args: unknown,
-): Record<string, unknown>;
+export function validateToolArgs(toolName: NativeToolName, args: unknown): Record<string, unknown>;

@@ -32,19 +32,22 @@ export function ConfigPanel({
     }
   }, [config]);
 
-  const save = useCallback(async (patch: Partial<AppConfig>) => {
-    setIsSaving(true);
-    setStatus(null);
-    try {
-      await onConfigChange(patch);
-      setStatus('Saved');
-      setTimeout(() => setStatus(null), 2000);
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : 'Save failed');
-    } finally {
-      setIsSaving(false);
-    }
-  }, [onConfigChange]);
+  const save = useCallback(
+    async (patch: Partial<AppConfig>) => {
+      setIsSaving(true);
+      setStatus(null);
+      try {
+        await onConfigChange(patch);
+        setStatus('Saved');
+        setTimeout(() => setStatus(null), 2000);
+      } catch (e) {
+        setStatus(e instanceof Error ? e.message : 'Save failed');
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [onConfigChange]
+  );
 
   const handleProfileChange = (profileId: string) => {
     const profile = config?.profiles?.[profileId];
@@ -99,7 +102,9 @@ export function ConfigPanel({
           >
             <option value="">Auto (first available)</option>
             {availableModels.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>
+                {m}
+              </option>
             ))}
           </select>
           <button type="button" onClick={onRefreshModels} title="Refresh models">
@@ -110,12 +115,11 @@ export function ConfigPanel({
 
       <div className="config-field">
         <label>Profile</label>
-        <select
-          value={activeProfile}
-          onChange={(e) => handleProfileChange(e.target.value)}
-        >
+        <select value={activeProfile} onChange={(e) => handleProfileChange(e.target.value)}>
           {profileOptions.map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
           ))}
         </select>
       </div>

@@ -60,6 +60,8 @@ export interface ToolDefinition {
     name: string;
     description: string;
     parameters: Record<string, unknown>;
+    /** When true, tool execution is skipped until user confirms. Prevents runaway risky ops. */
+    requires_confirmation?: boolean;
   };
 }
 

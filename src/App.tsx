@@ -30,7 +30,10 @@ function createDefaultMetrics(): Metrics {
   };
 }
 
-async function readJsonResponse<T = Record<string, unknown>>(res: Response, defaultError: string): Promise<T> {
+async function readJsonResponse<T = Record<string, unknown>>(
+  res: Response,
+  defaultError: string
+): Promise<T> {
   const raw = await res.text();
   let data: Record<string, unknown> = {};
 
@@ -79,16 +82,19 @@ function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const TOOL_API_KEY = import.meta.env.VITE_TOOL_API_KEY as string | undefined;
 
-  const buildToolHeaders = useCallback((withJson = false): HeadersInit => {
-    const headers: Record<string, string> = {};
-    if (withJson) {
-      headers['Content-Type'] = 'application/json';
-    }
-    if (TOOL_API_KEY) {
-      headers['x-tool-api-key'] = TOOL_API_KEY;
-    }
-    return headers;
-  }, [TOOL_API_KEY]);
+  const buildToolHeaders = useCallback(
+    (withJson = false): HeadersInit => {
+      const headers: Record<string, string> = {};
+      if (withJson) {
+        headers['Content-Type'] = 'application/json';
+      }
+      if (TOOL_API_KEY) {
+        headers['x-tool-api-key'] = TOOL_API_KEY;
+      }
+      return headers;
+    },
+    [TOOL_API_KEY]
+  );
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -149,7 +155,7 @@ function App() {
       setConfig(data);
       return data;
     },
-    [buildToolHeaders],
+    [buildToolHeaders]
   );
 
   const refreshTooling = useCallback(async () => {
@@ -186,10 +192,14 @@ function App() {
 
       const errors = [
         ...(Array.isArray(groupedToolsData.errors)
-          ? groupedToolsData.errors.map((error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`)
+          ? groupedToolsData.errors.map(
+              (error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`
+            )
           : []),
         ...(Array.isArray(definitionsData.errors)
-          ? definitionsData.errors.map((error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`)
+          ? definitionsData.errors.map(
+              (error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`
+            )
           : []),
       ];
       setMcpToolErrors(errors);
@@ -247,7 +257,8 @@ function App() {
 
   // Project autosave: when autosave is on and we have a project, debounced save to filesystem
   useEffect(() => {
-    if (!config?.chatAutosave || !currentChatFilename || isGenerating || messages.length === 0) return;
+    if (!config?.chatAutosave || !currentChatFilename || isGenerating || messages.length === 0)
+      return;
     const t = setTimeout(async () => {
       try {
         const messagesToSave = messages.filter((message) => message.role !== 'system');
@@ -339,40 +350,47 @@ function App() {
     }
   };
 
-  const renameChat = useCallback(async (filename: string, newTitle: string) => {
-    if (!newTitle.trim()) return;
-    try {
-      const res = await fetch(`/api/chats/${filename}`, {
-        method: 'PUT',
-        headers: buildToolHeaders(true),
-        body: JSON.stringify({ title: newTitle.trim() }),
-      });
-      await readJsonResponse(res, 'Failed to rename chat');
-      fetchChats();
-    } catch (e) {
-      console.error('Failed to rename chat', e);
-    }
-  }, [buildToolHeaders, fetchChats]);
+  const renameChat = useCallback(
+    async (filename: string, newTitle: string) => {
+      if (!newTitle.trim()) return;
+      try {
+        const res = await fetch(`/api/chats/${filename}`, {
+          method: 'PUT',
+          headers: buildToolHeaders(true),
+          body: JSON.stringify({ title: newTitle.trim() }),
+        });
+        await readJsonResponse(res, 'Failed to rename chat');
+        fetchChats();
+      } catch (e) {
+        console.error('Failed to rename chat', e);
+      }
+    },
+    [buildToolHeaders, fetchChats]
+  );
 
-  const togglePinChat = useCallback(async (filename: string, pinned: boolean) => {
-    try {
-      const res = await fetch(`/api/chats/${filename}`, {
-        method: 'PUT',
-        headers: buildToolHeaders(true),
-        body: JSON.stringify({ pinned }),
-      });
-      await readJsonResponse(res, 'Failed to pin chat');
-      fetchChats();
-    } catch (e) {
-      console.error('Failed to pin chat', e);
-    }
-  }, [buildToolHeaders, fetchChats]);
+  const togglePinChat = useCallback(
+    async (filename: string, pinned: boolean) => {
+      try {
+        const res = await fetch(`/api/chats/${filename}`, {
+          method: 'PUT',
+          headers: buildToolHeaders(true),
+          body: JSON.stringify({ pinned }),
+        });
+        await readJsonResponse(res, 'Failed to pin chat');
+        fetchChats();
+      } catch (e) {
+        console.error('Failed to pin chat', e);
+      }
+    },
+    [buildToolHeaders, fetchChats]
+  );
 
   const exportChat = useCallback(() => {
     const messagesToExport = messages.filter((m) => m.role !== 'system');
     const firstUserMsg = messagesToExport.find((m) => m.role === 'user')?.content || 'Untitled';
     const title = currentChatFilename
-      ? chats.find((c) => c.filename === currentChatFilename)?.title ?? firstUserMsg.substring(0, 40)
+      ? (chats.find((c) => c.filename === currentChatFilename)?.title ??
+        firstUserMsg.substring(0, 40))
       : firstUserMsg.substring(0, 40);
     const bundle = {
       title,
@@ -408,7 +426,9 @@ function App() {
 
     if (availableSkills.length === 0) return requestMessages;
 
-    const skillsDesc = availableSkills.map((skill) => `- ${skill.name}: ${skill.description}`).join('\n');
+    const skillsDesc = availableSkills
+      .map((skill) => `- ${skill.name}: ${skill.description}`)
+      .join('\n');
     const systemMsg: Message = {
       role: 'system',
       content:
@@ -425,80 +445,98 @@ function App() {
     return requestMessages;
   };
 
-  const createMcpServer = useCallback(async (payload: Partial<McpServerConfig>) => {
-    const res = await fetch('/api/mcp/servers', {
-      method: 'POST',
-      headers: buildToolHeaders(true),
-      body: JSON.stringify(payload),
-    });
-    await readJsonResponse(res, 'Failed to create MCP server');
-    await refreshTooling();
-  }, [buildToolHeaders, refreshTooling]);
+  const createMcpServer = useCallback(
+    async (payload: Partial<McpServerConfig>) => {
+      const res = await fetch('/api/mcp/servers', {
+        method: 'POST',
+        headers: buildToolHeaders(true),
+        body: JSON.stringify(payload),
+      });
+      await readJsonResponse(res, 'Failed to create MCP server');
+      await refreshTooling();
+    },
+    [buildToolHeaders, refreshTooling]
+  );
 
-  const updateMcpServer = useCallback(async (id: string, patch: Partial<McpServerConfig>) => {
-    const res = await fetch(`/api/mcp/servers/${id}`, {
-      method: 'PUT',
-      headers: buildToolHeaders(true),
-      body: JSON.stringify(patch),
-    });
-    await readJsonResponse(res, 'Failed to update MCP server');
-    await refreshTooling();
-  }, [buildToolHeaders, refreshTooling]);
+  const updateMcpServer = useCallback(
+    async (id: string, patch: Partial<McpServerConfig>) => {
+      const res = await fetch(`/api/mcp/servers/${id}`, {
+        method: 'PUT',
+        headers: buildToolHeaders(true),
+        body: JSON.stringify(patch),
+      });
+      await readJsonResponse(res, 'Failed to update MCP server');
+      await refreshTooling();
+    },
+    [buildToolHeaders, refreshTooling]
+  );
 
-  const deleteMcpServer = useCallback(async (id: string) => {
-    const res = await fetch(`/api/mcp/servers/${id}`, {
-      method: 'DELETE',
-      headers: buildToolHeaders(),
-    });
-    await readJsonResponse(res, 'Failed to delete MCP server');
-    await refreshTooling();
-  }, [buildToolHeaders, refreshTooling]);
+  const deleteMcpServer = useCallback(
+    async (id: string) => {
+      const res = await fetch(`/api/mcp/servers/${id}`, {
+        method: 'DELETE',
+        headers: buildToolHeaders(),
+      });
+      await readJsonResponse(res, 'Failed to delete MCP server');
+      await refreshTooling();
+    },
+    [buildToolHeaders, refreshTooling]
+  );
 
-  const testMcpServer = useCallback(async (id: string) => {
-    const res = await fetch(`/api/mcp/servers/${id}/test`, {
-      method: 'POST',
-      headers: buildToolHeaders(true),
-      body: JSON.stringify({}),
-    });
-    const data = await readJsonResponse(res, 'MCP server test failed');
-    if (data.success !== true) {
-      throw new Error(typeof data.error === 'string' ? data.error : 'MCP server test failed');
-    }
-    await refreshTooling();
-    return {
-      toolCount: Number(data.toolCount ?? 0),
-      toolNames: Array.isArray(data.toolNames) ? data.toolNames : [],
-    };
-  }, [buildToolHeaders, refreshTooling]);
-
-  const replayToolCall = useCallback(async (eventId: string) => {
-    if (!eventId || isGenerating) return;
-
-    setReplayingEventId(eventId);
-    try {
-      const res = await fetch(`/api/tools/replay/${eventId}`, {
+  const testMcpServer = useCallback(
+    async (id: string) => {
+      const res = await fetch(`/api/mcp/servers/${id}/test`, {
         method: 'POST',
         headers: buildToolHeaders(true),
         body: JSON.stringify({}),
       });
-      const data = await readJsonResponse<ReplayToolResponse>(res, 'Failed to replay tool call');
-
-      const replayMessage: Message = {
-        role: 'tool',
-        tool_call_id: `replay_${Date.now()}`,
-        name: data.event?.tool_name ?? 'tool_replay',
-        content: JSON.stringify(data.result ?? {}),
-        tool_event: data.event,
+      const data = await readJsonResponse(res, 'MCP server test failed');
+      if (data.success !== true) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'MCP server test failed');
+      }
+      await refreshTooling();
+      return {
+        toolCount: Number(data.toolCount ?? 0),
+        toolNames: Array.isArray(data.toolNames) ? data.toolNames : [],
       };
+    },
+    [buildToolHeaders, refreshTooling]
+  );
 
-      setMessages((prev) => [...prev, replayMessage]);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown replay error';
-      setMessages((prev) => [...prev, { role: 'assistant', content: `⚠️ Replay failed: ${errorMessage}` }]);
-    } finally {
-      setReplayingEventId(null);
-    }
-  }, [buildToolHeaders, isGenerating]);
+  const replayToolCall = useCallback(
+    async (eventId: string) => {
+      if (!eventId || isGenerating) return;
+
+      setReplayingEventId(eventId);
+      try {
+        const res = await fetch(`/api/tools/replay/${eventId}`, {
+          method: 'POST',
+          headers: buildToolHeaders(true),
+          body: JSON.stringify({}),
+        });
+        const data = await readJsonResponse<ReplayToolResponse>(res, 'Failed to replay tool call');
+
+        const replayMessage: Message = {
+          role: 'tool',
+          tool_call_id: `replay_${Date.now()}`,
+          name: data.event?.tool_name ?? 'tool_replay',
+          content: JSON.stringify(data.result ?? {}),
+          tool_event: data.event,
+        };
+
+        setMessages((prev) => [...prev, replayMessage]);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown replay error';
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `⚠️ Replay failed: ${errorMessage}` },
+        ]);
+      } finally {
+        setReplayingEventId(null);
+      }
+    },
+    [buildToolHeaders, isGenerating]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

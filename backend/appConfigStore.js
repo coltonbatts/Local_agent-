@@ -85,11 +85,13 @@ export function createAppConfigStore(projectRoot) {
     getActiveProfile() {
       const cfg = this.getConfig();
       const profile = cfg.profiles?.[cfg.activeProfile] ?? cfg.profiles?.default;
-      return profile ?? {
-        temperature: cfg.temperature ?? 0.7,
-        maxTokens: cfg.maxTokens ?? 4096,
-        toolsEnabled: true,
-      };
+      return (
+        profile ?? {
+          temperature: cfg.temperature ?? 0.7,
+          maxTokens: cfg.maxTokens ?? 4096,
+          toolsEnabled: true,
+        }
+      );
     },
 
     getModelBaseUrl() {

@@ -31,40 +31,77 @@ const nativeTools = createNativeToolExecutor({
   getBraveApiKey: () => process.env.BRAVE_API_KEY,
 });
 
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://127.0.0.1:5174')
+const allowedOrigins = (
+  process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://127.0.0.1:5174'
+)
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error('Not allowed by CORS'));
-  },
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error('Not allowed by CORS'));
+    },
+  })
+);
 app.use(express.json({ limit: '1mb' }));
 
 // Model API proxy – forwards /v1/* to configured model base URL (LM Studio, Ollama, etc.)
-app.use('/v1', createProxyMiddleware({
-  target: 'http://127.0.0.1:1234',
-  changeOrigin: true,
-  router: () => appConfigStore.getModelBaseUrl(),
-  onError: (err, req, res) => {
-    console.error('Model proxy error:', err.message);
-    res.status(502).json({ error: `Model server unreachable: ${err.message}` });
-  },
-}));
+app.use(
+  '/v1',
+  createProxyMiddleware({
+    target: 'http://127.0.0.1:1234',
+    changeOrigin: true,
+    router: () => appConfigStore.getModelBaseUrl(),
+    onError: (err, req, res) => {
+      console.error('Model proxy error:', err.message);
+      res.status(502).json({ error: `Model server unreachable: ${err.message}` });
+    },
+  })
+);
 
 const toolApiKey = process.env.TOOL_API_KEY;
 const requireToolAuth = (req, res, next) => {
   if (!toolApiKey) return next();
   const provided = req.header('x-tool-api-key');
   if (provided !== toolApiKey) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    const hint = !provided
+      ? 'No x-tool-api-key header sent. Set VITE_TOOL_API_KEY in your frontend .env to match the server TOOL_API_KEY.'
+      : 'x-tool-api-key does not match. Ensure VITE_TOOL_API_KEY matches TOOL_API_KEY in the server .env.';
+    return res.status(401).json({
+      error: 'TOOL_API_KEY mismatch',
+      code: 'TOOL_API_KEY_MISMATCH',
+      hint,
+    });
   }
   return next();
 };
+
+// Rate-limit tool endpoints to prevent accidental runaway loops (even locally)
+const toolRateLimitMap = new Map();
+const TOOL_RATE_WINDOW_MS = 60 * 1000;
+const TOOL_RATE_MAX = 120;
+function toolRateLimit(req, res, next) {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const now = Date.now();
+  let record = toolRateLimitMap.get(ip);
+  if (!record || now > record.resetAt) {
+    record = { count: 0, resetAt: now + TOOL_RATE_WINDOW_MS };
+    toolRateLimitMap.set(ip, record);
+  }
+  record.count += 1;
+  if (record.count > TOOL_RATE_MAX) {
+    return res.status(429).json({
+      error: 'Too many tool requests',
+      code: 'RATE_LIMIT_EXCEEDED',
+      hint: 'Slow down. Tool endpoints are rate-limited to prevent runaway loops.',
+    });
+  }
+  next();
+}
 
 app.get('/api/config', (req, res) => {
   try {
@@ -90,7 +127,9 @@ function parseMcpToolName(fullToolName) {
 
   const parts = fullToolName.split('.');
   if (parts.length < 3) {
-    throw new Error(`Invalid MCP tool name '${fullToolName}'. Expected format: mcp.<server_id>.<tool_name>`);
+    throw new Error(
+      `Invalid MCP tool name '${fullToolName}'. Expected format: mcp.<server_id>.<tool_name>`
+    );
   }
 
   const serverId = parts[1];
@@ -126,9 +165,10 @@ function toModelToolDefinition(tool) {
     function: {
       name: toNamespacedMcpToolName(tool.server_id, tool.tool_name),
       description,
-      parameters: tool.input_schema && typeof tool.input_schema === 'object'
-        ? tool.input_schema
-        : { type: 'object', properties: {} },
+      parameters:
+        tool.input_schema && typeof tool.input_schema === 'object'
+          ? tool.input_schema
+          : { type: 'object', properties: {} },
     },
   };
 }
@@ -188,7 +228,9 @@ async function executeToolCall({ toolName, args, replayOf = null }) {
       });
 
       try {
-        const result = await withMcpConnection(server, async (connection) => call_tool(connection, parsedMcp.toolName, args));
+        const result = await withMcpConnection(server, async (connection) =>
+          call_tool(connection, parsedMcp.toolName, args)
+        );
         const finalized = toolEventLogger.finalizeSuccess(event, result);
         toolEventLogger.persist(finalized);
 
@@ -276,11 +318,15 @@ app.get('/api/tools/definitions', async (req, res) => {
     });
   } catch (err) {
     console.error('Tool Definitions Error:', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list tool definitions' });
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Failed to list tool definitions' });
   }
 });
 
 // Backwards-compatible tool endpoints for existing native tool integrations
+app.use('/api/tools', toolRateLimit);
+
 app.post('/api/tools/read_file', requireToolAuth, async (req, res) => {
   const { result } = await executeToolCall({ toolName: 'read_file', args: req.body });
   if (result?.error) {
@@ -341,7 +387,9 @@ app.get('/api/tools/events', (req, res) => {
     res.json({ events });
   } catch (err) {
     console.error('List Tool Events Error:', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list tool events' });
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Failed to list tool events' });
   }
 });
 
@@ -360,7 +408,9 @@ app.get('/api/tools/events/:id', (req, res) => {
     res.json({ event });
   } catch (err) {
     console.error('Get Tool Event Error:', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get tool event' });
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Failed to get tool event' });
   }
 });
 
@@ -385,7 +435,9 @@ app.post('/api/tools/replay/:eventId', requireToolAuth, async (req, res) => {
     res.json(execution);
   } catch (err) {
     console.error('Replay Tool Error:', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to replay tool call' });
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Failed to replay tool call' });
   }
 });
 
@@ -414,7 +466,9 @@ app.get('/api/skills', (req, res) => {
     return res.json({ skills });
   } catch (err) {
     console.error('List Skills Error:', err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Error listing skills' });
+    return res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Error listing skills' });
   }
 });
 
@@ -424,7 +478,9 @@ app.get('/api/mcp/servers', (req, res) => {
     res.json({ servers });
   } catch (err) {
     console.error('List MCP Servers Error:', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list MCP servers' });
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Failed to list MCP servers' });
   }
 });
 
@@ -434,7 +490,9 @@ app.post('/api/mcp/servers', requireToolAuth, (req, res) => {
     res.json({ server: created });
   } catch (err) {
     console.error('Create MCP Server Error:', err);
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to create MCP server' });
+    res
+      .status(400)
+      .json({ error: err instanceof Error ? err.message : 'Failed to create MCP server' });
   }
 });
 
@@ -444,7 +502,9 @@ app.put('/api/mcp/servers/:id', requireToolAuth, (req, res) => {
     res.json({ server: updated });
   } catch (err) {
     console.error('Update MCP Server Error:', err);
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to update MCP server' });
+    res
+      .status(400)
+      .json({ error: err instanceof Error ? err.message : 'Failed to update MCP server' });
   }
 });
 
@@ -454,7 +514,9 @@ app.delete('/api/mcp/servers/:id', requireToolAuth, (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Delete MCP Server Error:', err);
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to delete MCP server' });
+    res
+      .status(400)
+      .json({ error: err instanceof Error ? err.message : 'Failed to delete MCP server' });
   }
 });
 
@@ -482,16 +544,18 @@ app.post('/api/mcp/servers/:id/test', requireToolAuth, async (req, res) => {
 
 app.get('/api/mcp/tools', async (req, res) => {
   try {
-    const query = String(req.query.q ?? '').trim().toLowerCase();
+    const query = String(req.query.q ?? '')
+      .trim()
+      .toLowerCase();
     const { tools, errors } = await discoverEnabledMcpTools();
 
     const filtered = query
       ? tools.filter((tool) => {
-        const haystack = [tool.server_name, tool.server_id, tool.tool_name, tool.description]
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(query);
-      })
+          const haystack = [tool.server_name, tool.server_id, tool.tool_name, tool.description]
+            .join(' ')
+            .toLowerCase();
+          return haystack.includes(query);
+        })
       : tools;
 
     const grouped = filtered.reduce((acc, tool) => {
@@ -514,7 +578,9 @@ app.get('/api/mcp/tools', async (req, res) => {
     });
   } catch (err) {
     console.error('List MCP Tools Error:', err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list MCP tools' });
+    return res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Failed to list MCP tools' });
   }
 });
 
@@ -533,11 +599,16 @@ app.post('/api/chats', requireToolAuth, (req, res) => {
     const filename = `${safeTimestamp}_${safeTitle}.json`;
     const filepath = path.join(CHATS_DIR, filename);
 
-    fs.writeFileSync(filepath, JSON.stringify({ messages, title, timestamp, pinned: false }, null, 2));
+    fs.writeFileSync(
+      filepath,
+      JSON.stringify({ messages, title, timestamp, pinned: false }, null, 2)
+    );
     return res.json({ success: true, filename });
   } catch (err) {
     console.error('Save Chat Error:', err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Error saving chat' });
+    return res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Error saving chat' });
   }
 });
 
@@ -577,7 +648,9 @@ app.put('/api/chats/:filename', requireToolAuth, (req, res) => {
     });
   } catch (err) {
     console.error('Update Chat Error:', err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Error updating chat' });
+    return res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Error updating chat' });
   }
 });
 
@@ -610,7 +683,9 @@ app.get('/api/chats', (req, res) => {
     return res.json({ chats });
   } catch (err) {
     console.error('Load Chats Error:', err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Error loading chats' });
+    return res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Error loading chats' });
   }
 });
 
@@ -632,7 +707,9 @@ app.get('/api/chats/:filename', (req, res) => {
     return res.json(data);
   } catch (err) {
     console.error('Load Chat Error:', err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Error loading chat file' });
+    return res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : 'Error loading chat file' });
   }
 });
 

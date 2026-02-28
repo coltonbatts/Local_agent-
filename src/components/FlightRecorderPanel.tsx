@@ -87,7 +87,7 @@ export function FlightRecorderPanel({
     return () => clearTimeout(t);
   }, [fetchEvents]);
 
-  const selectedEvent = selectedId ? events.find((e) => e.id === selectedId) ?? null : null;
+  const selectedEvent = selectedId ? (events.find((e) => e.id === selectedId) ?? null) : null;
 
   return (
     <div className="flight-recorder-panel">
@@ -131,9 +131,7 @@ export function FlightRecorderPanel({
         />
       </div>
 
-      {error && (
-        <div className="flight-recorder-error">{error}</div>
-      )}
+      {error && <div className="flight-recorder-error">{error}</div>}
 
       <div className="flight-recorder-list">
         {events.length === 0 && !isLoading && (

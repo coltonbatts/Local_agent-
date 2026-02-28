@@ -78,12 +78,16 @@ function normalizeEnv(envInput) {
 function normalizeServerPayload(input, existingServer) {
   const base = existingServer ?? {};
 
-  const id = String(input.id ?? base.id ?? '').trim().toLowerCase();
+  const id = String(input.id ?? base.id ?? '')
+    .trim()
+    .toLowerCase();
   if (!id || !SERVER_ID_REGEX.test(id)) {
-    throw new Error("id is required and must match /^[a-z0-9][a-z0-9_-]{1,63}$/");
+    throw new Error('id is required and must match /^[a-z0-9][a-z0-9_-]{1,63}$/');
   }
 
-  const transport = String(input.transport ?? base.transport ?? '').trim().toLowerCase();
+  const transport = String(input.transport ?? base.transport ?? '')
+    .trim()
+    .toLowerCase();
   if (!SUPPORTED_TRANSPORTS.has(transport)) {
     throw new Error("transport must be one of: 'stdio', 'http', 'sse'");
   }

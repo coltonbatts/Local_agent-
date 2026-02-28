@@ -1,11 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import {
-  NATIVE_TOOL_DEFINITIONS,
-  validateToolArgs,
-} from '../shared/tools.js';
+import { NATIVE_TOOL_DEFINITIONS, validateToolArgs } from '../shared/tools.js';
 
-function resolveSafePath(projectRoot, inputPath) {
+export function resolveSafePath(projectRoot, inputPath) {
   const normalized = path.normalize(inputPath);
   const resolved = path.resolve(projectRoot, normalized);
   const relative = path.relative(projectRoot, resolved);
@@ -24,9 +21,16 @@ export function parseInternalSkillFrontmatter(content) {
 
   const lines = match[1].split('\n');
   lines.forEach((line) => {
-    if (line.startsWith('name:')) name = line.replace('name:', '').trim().replace(/^['"](.*)['"]$/, '$1');
+    if (line.startsWith('name:'))
+      name = line
+        .replace('name:', '')
+        .trim()
+        .replace(/^['"](.*)['"]$/, '$1');
     if (line.startsWith('description:')) {
-      description = line.replace('description:', '').trim().replace(/^['"](.*)['"]$/, '$1');
+      description = line
+        .replace('description:', '')
+        .trim()
+        .replace(/^['"](.*)['"]$/, '$1');
     }
   });
 
@@ -67,7 +71,7 @@ export function createNativeToolExecutor({ projectRoot, skillsDir, getBraveApiKe
           Accept: 'application/json',
           'X-Subscription-Token': apiKey,
         },
-      },
+      }
     );
 
     if (!response.ok) {

@@ -8,7 +8,13 @@ interface ChatInputProps {
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
 }
 
-export function ChatInput({ input, isGenerating, onInputChange, onSubmit, onKeyDown }: ChatInputProps) {
+export function ChatInput({
+  input,
+  isGenerating,
+  onInputChange,
+  onSubmit,
+  onKeyDown,
+}: ChatInputProps) {
   return (
     <form className="input-area" onSubmit={onSubmit}>
       <div className="input-container">
@@ -21,11 +27,7 @@ export function ChatInput({ input, isGenerating, onInputChange, onSubmit, onKeyD
           disabled={isGenerating}
           rows={1}
         />
-        <button
-          type="submit"
-          className="send-button"
-          disabled={!input.trim() || isGenerating}
-        >
+        <button type="submit" className="send-button" disabled={!input.trim() || isGenerating}>
           [SEND]
         </button>
       </div>

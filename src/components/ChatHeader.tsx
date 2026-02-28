@@ -23,11 +23,20 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   return (
     <header className="chat-header">
-      <button className="sidebar-toggle-mobile" onClick={onToggleLeftSidebar}>☰</button>
+      <button className="sidebar-toggle-mobile" onClick={onToggleLeftSidebar}>
+        ☰
+      </button>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <select
-          style={{ background: 'transparent', color: 'inherit', border: '1px solid var(--border-subtle)', fontFamily: 'var(--font-ui)', padding: '4px', outline: 'none' }}
+          style={{
+            background: 'transparent',
+            color: 'inherit',
+            border: '1px solid var(--border-subtle)',
+            fontFamily: 'var(--font-ui)',
+            padding: '4px',
+            outline: 'none',
+          }}
           value={modelName}
           onChange={(e) => onModelChange(e.target.value)}
           disabled={isGenerating}
@@ -36,16 +45,24 @@ export function ChatHeader({
             <option value={modelName}>{modelName}</option>
           ) : (
             availableModels.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>
+                {m}
+              </option>
             ))
           )}
         </select>
       </div>
 
       <div className="chat-header-actions">
-        <button onClick={onSaveChat} disabled={!hasMessages || isGenerating}>[SAVE]</button>
-        <button onClick={onClearChat} disabled={!hasMessages || isGenerating}>[CLEAR]</button>
-        <button className="sidebar-toggle-mobile" onClick={onToggleRightSidebar}>⚙</button>
+        <button onClick={onSaveChat} disabled={!hasMessages || isGenerating}>
+          [SAVE]
+        </button>
+        <button onClick={onClearChat} disabled={!hasMessages || isGenerating}>
+          [CLEAR]
+        </button>
+        <button className="sidebar-toggle-mobile" onClick={onToggleRightSidebar}>
+          ⚙
+        </button>
       </div>
     </header>
   );
