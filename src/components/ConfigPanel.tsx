@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   DEFAULT_OPENROUTER_APP_TITLE,
   DEFAULT_OPENROUTER_HTTP_REFERER,
@@ -11,6 +11,7 @@ import type {
   ProviderModel,
 } from '../providers/types';
 import type { AppConfig } from '../types/config';
+import { ModelPicker } from './ModelPicker';
 
 interface ConfigPanelProps {
   config: AppConfig | null;
@@ -34,8 +35,6 @@ export function ConfigPanel({
   const [modelBaseUrl, setModelBaseUrl] = useState(config?.modelBaseUrl ?? 'http://127.0.0.1:1234/v1');
   const [provider, setProvider] = useState<ProviderId>(config?.provider ?? DEFAULT_PROVIDER);
   const [defaultModel, setDefaultModel] = useState('');
-  const [modelSearch, setModelSearch] = useState('');
-  const [visionOnly, setVisionOnly] = useState(false);
 
   const [temperature, setTemperature] = useState(config?.temperature ?? 0.7);
   const [maxTokens, setMaxTokens] = useState(config?.maxTokens ?? 4096);
@@ -78,23 +77,6 @@ export function ConfigPanel({
     setDefaultModel(savedSelection ?? fallback ?? '');
   }, [config, provider]);
 
-  const filteredModels = useMemo(() => {
-    const query = modelSearch.trim().toLowerCase();
-
-    return availableModels
-      .filter((model) => {
-        if (visionOnly && !model.visionCapable) {
-          return false;
-        }
-        if (!query) {
-          return true;
-        }
-
-        const haystack = `${model.name} ${model.id}`.toLowerCase();
-        return haystack.includes(query);
-      })
-      .sort((a, b) => a.id.localeCompare(b.id));
-  }, [availableModels, modelSearch, visionOnly]);
 
   const save = useCallback(
     async (patch: Partial<AppConfig>) => {
@@ -198,41 +180,20 @@ export function ConfigPanel({
       </div>
 
       <div className="config-field">
-        <label>Model search</label>
-        <input
-          type="text"
-          value={modelSearch}
-          onChange={(e) => setModelSearch(e.target.value)}
-          placeholder="Search by model id or name"
-        />
-      </div>
-
-      <label className="config-checkbox-row">
-        <input
-          type="checkbox"
-          checked={visionOnly}
-          onChange={(e) => setVisionOnly(e.target.checked)}
-        />
-        Vision capable only
-      </label>
-
-      <div className="config-field">
-        <label>Default model ({filteredModels.length} shown)</label>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <select
+        <label>Default model ({availableModels.length} available)</label>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <ModelPicker
             value={defaultModel}
-            onChange={(e) => setDefaultModel(e.target.value)}
-            style={{ flex: 1 }}
+            availableModels={availableModels}
+            onModelChange={(id) => setDefaultModel(id)}
+          />
+          <button
+            type="button"
+            className="refresh-models-btn"
+            onClick={() => onRefreshModels(true)}
+            title="Refresh models"
+            style={{ height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
-            <option value="">Auto (first available)</option>
-            {filteredModels.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.id}
-                {model.visionCapable ? ' (vision)' : ''}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={() => onRefreshModels(true)} title="Refresh models">
             ↻
           </button>
         </div>

@@ -305,13 +305,13 @@ function App() {
       const errors = [
         ...(Array.isArray(groupedToolsData.errors)
           ? groupedToolsData.errors.map(
-              (error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`
-            )
+            (error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`
+          )
           : []),
         ...(Array.isArray(definitionsData.errors)
           ? definitionsData.errors.map(
-              (error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`
-            )
+            (error: { server_id: string; error: string }) => `${error.server_id}: ${error.error}`
+          )
           : []),
       ];
       setMcpToolErrors(errors);
@@ -789,7 +789,7 @@ function App() {
       <main className="chat-area">
         <ChatHeader
           modelName={modelName}
-          availableModels={availableModels.map((model) => model.id)}
+          availableModels={availableModels}
           onModelChange={handleModelChange}
           isGenerating={isGenerating}
           hasMessages={messages.length > 0}

@@ -60,3 +60,4 @@ app-icon.png
 *.njsproj
 *.sln
 *.sw?
+src/test01
