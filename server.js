@@ -4,8 +4,10 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import { createNativeToolExecutor, parseInternalSkillFrontmatter } from './backend/nativeTools.js';
 import { createMcpConfigStore } from './backend/mcpConfigStore.js';
+import { createAppConfigStore } from './backend/appConfigStore.js';
 import { call_tool, list_tools, withMcpConnection } from './backend/mcpClient.js';
 import { createToolEventLogger } from './backend/toolEventLogger.js';
 
@@ -21,6 +23,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 const mcpConfigStore = createMcpConfigStore(PROJECT_ROOT);
+const appConfigStore = createAppConfigStore(PROJECT_ROOT);
 const toolEventLogger = createToolEventLogger(PROJECT_ROOT);
 const nativeTools = createNativeToolExecutor({
   projectRoot: PROJECT_ROOT,
@@ -42,6 +45,17 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 
+// Model API proxy – forwards /v1/* to configured model base URL (LM Studio, Ollama, etc.)
+app.use('/v1', createProxyMiddleware({
+  target: 'http://127.0.0.1:1234',
+  changeOrigin: true,
+  router: () => appConfigStore.getModelBaseUrl(),
+  onError: (err, req, res) => {
+    console.error('Model proxy error:', err.message);
+    res.status(502).json({ error: `Model server unreachable: ${err.message}` });
+  },
+}));
+
 const toolApiKey = process.env.TOOL_API_KEY;
 const requireToolAuth = (req, res, next) => {
   if (!toolApiKey) return next();
@@ -51,6 +65,25 @@ const requireToolAuth = (req, res, next) => {
   }
   return next();
 };
+
+app.get('/api/config', (req, res) => {
+  try {
+    res.json(appConfigStore.getConfig());
+  } catch (err) {
+    console.error('Get Config Error:', err);
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to load config' });
+  }
+});
+
+app.put('/api/config', requireToolAuth, (req, res) => {
+  try {
+    const updated = appConfigStore.updateConfig(req.body ?? {});
+    res.json(updated);
+  } catch (err) {
+    console.error('Update Config Error:', err);
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to update config' });
+  }
+});
 
 function parseMcpToolName(fullToolName) {
   if (!fullToolName.startsWith('mcp.')) return null;

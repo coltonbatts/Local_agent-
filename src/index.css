@@ -533,6 +533,50 @@ textarea::placeholder {
   margin-left: var(--space-xs);
 }
 
+.config-panel {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.config-section-title {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-xs);
+}
+
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.config-field label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.config-hint {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+}
+
+.config-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+}
+
+.config-status {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
 .status-dot {
   display: inline-block;
   width: 6px;

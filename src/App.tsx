@@ -15,7 +15,8 @@ import type {
   ToolDefinition,
   ToolExecutionEvent,
 } from './types/chat';
-import { DEFAULT_NATIVE_TOOL_DEFINITIONS, runToolConversation } from './utils/chatGeneration';
+import type { AppConfig } from './types/config';
+import { runToolConversation } from './utils/chatGeneration';
 import './App.css';
 
 const LOCAL_STORAGE_MESSAGES_KEY = 'chatbot_messages';
@@ -68,12 +69,13 @@ function App() {
   const [currentChatFilename, setCurrentChatFilename] = useState<string | null>(null);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
-  const [toolDefinitions, setToolDefinitions] = useState<ToolDefinition[]>(DEFAULT_NATIVE_TOOL_DEFINITIONS);
+  const [toolDefinitions, setToolDefinitions] = useState<ToolDefinition[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
   const [mcpToolsGrouped, setMcpToolsGrouped] = useState<McpToolsGroup[]>([]);
   const [mcpToolErrors, setMcpToolErrors] = useState<string[]>([]);
   const [isToolsLoading, setIsToolsLoading] = useState(false);
   const [replayingEventId, setReplayingEventId] = useState<string | null>(null);
+  const [config, setConfig] = useState<AppConfig | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const TOOL_API_KEY = import.meta.env.VITE_TOOL_API_KEY as string | undefined;
 
@@ -105,7 +107,7 @@ function App() {
       if (data.data && data.data.length > 0) {
         const models = data.data.map((m: { id: string }) => m.id);
         setAvailableModels(models);
-        if (modelName === 'Local Model') {
+        if (modelName === 'Local Model' || !models.includes(modelName)) {
           setModelName(models[0]);
         }
       }
@@ -123,6 +125,32 @@ function App() {
       console.error('Failed to load chats', e);
     }
   }, []);
+
+  const fetchConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/config');
+      const data = await res.json();
+      if (data && typeof data === 'object') {
+        setConfig(data as AppConfig);
+      }
+    } catch (e) {
+      console.error('Failed to load config', e);
+    }
+  }, []);
+
+  const updateConfig = useCallback(
+    async (patch: Partial<AppConfig>) => {
+      const res = await fetch('/api/config', {
+        method: 'PUT',
+        headers: buildToolHeaders(true),
+        body: JSON.stringify(patch),
+      });
+      const data = await readJsonResponse<AppConfig>(res, 'Failed to update config');
+      setConfig(data);
+      return data;
+    },
+    [buildToolHeaders],
+  );
 
   const refreshTooling = useCallback(async () => {
     setIsToolsLoading(true);
@@ -150,10 +178,10 @@ function App() {
         setMcpToolsGrouped([]);
       }
 
-      if (definitionsRes.ok && Array.isArray(definitionsData.tools) && definitionsData.tools.length > 0) {
+      if (definitionsRes.ok && Array.isArray(definitionsData.tools)) {
         setToolDefinitions(definitionsData.tools);
       } else {
-        setToolDefinitions(DEFAULT_NATIVE_TOOL_DEFINITIONS);
+        setToolDefinitions([]);
       }
 
       const errors = [
@@ -167,7 +195,7 @@ function App() {
       setMcpToolErrors(errors);
     } catch (error) {
       console.error('Failed to refresh MCP tooling', error);
-      setToolDefinitions(DEFAULT_NATIVE_TOOL_DEFINITIONS);
+      setToolDefinitions([]);
       setMcpToolsGrouped([]);
       const message = error instanceof Error ? error.message : 'Unable to fetch MCP tools';
       setMcpToolErrors([message]);
@@ -180,8 +208,15 @@ function App() {
     fetchSkills();
     fetchModel();
     fetchChats();
+    fetchConfig();
     void refreshTooling();
-  }, [fetchSkills, fetchModel, fetchChats, refreshTooling]);
+  }, [fetchSkills, fetchModel, fetchChats, fetchConfig, refreshTooling]);
+
+  useEffect(() => {
+    if (config?.defaultModel && availableModels.includes(config.defaultModel)) {
+      setModelName(config.defaultModel);
+    }
+  }, [config?.defaultModel, availableModels]);
 
   useEffect(() => {
     try {
@@ -376,12 +411,20 @@ function App() {
     setIsGenerating(true);
     setMetrics(createDefaultMetrics());
 
+    const profile = config?.profiles?.[config.activeProfile] ?? config?.profiles?.default;
+    const temperature = profile?.temperature ?? config?.temperature ?? 0.7;
+    const maxTokens = profile?.maxTokens ?? config?.maxTokens ?? 4096;
+    const toolsEnabled = profile?.toolsEnabled ?? true;
+
     try {
       await runToolConversation({
         initialConversation: requestMessages,
         modelName: modelName,
         tools: toolDefinitions,
         toolApiKey: TOOL_API_KEY,
+        temperature,
+        maxTokens,
+        toolsEnabled,
         callbacks: {
           appendEmptyAssistant: () => {
             setMessages((prev) => [...prev, { role: 'assistant', content: '', tool_calls: [] }]);
@@ -479,6 +522,10 @@ function App() {
         isGenerating={isGenerating}
         isOpen={isRightSidebarOpen}
         onClose={() => setIsRightSidebarOpen(false)}
+        config={config}
+        availableModels={availableModels}
+        onConfigChange={updateConfig}
+        onRefreshModels={fetchModel}
         mcpServers={mcpServers}
         mcpToolsGrouped={mcpToolsGrouped}
         mcpToolErrors={mcpToolErrors}

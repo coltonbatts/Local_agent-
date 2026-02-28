@@ -1,11 +1,17 @@
 import { McpSettingsPanel } from './McpSettingsPanel';
+import { ConfigPanel } from './ConfigPanel';
 import type { McpServerConfig, McpToolsGroup, Metrics } from '../types/chat';
+import type { AppConfig } from '../types/config';
 
 interface MetricsSidebarProps {
   metrics: Metrics;
   isGenerating: boolean;
   isOpen?: boolean;
   onClose?: () => void;
+  config: AppConfig | null;
+  availableModels: string[];
+  onConfigChange: (patch: Partial<AppConfig>) => Promise<AppConfig | void>;
+  onRefreshModels: () => void;
   mcpServers: McpServerConfig[];
   mcpToolsGrouped: McpToolsGroup[];
   mcpToolErrors: string[];
@@ -17,6 +23,7 @@ interface MetricsSidebarProps {
   onTestMcpServer: (id: string) => Promise<{ toolCount: number; toolNames: string[] }>;
 }
 
+
 function formatValue(value: number | null, decimals = 2) {
   if (value === null) return '--';
   return value.toFixed(decimals);
@@ -27,6 +34,10 @@ export function MetricsSidebar({
   isGenerating,
   isOpen,
   onClose,
+  config,
+  availableModels,
+  onConfigChange,
+  onRefreshModels,
   mcpServers,
   mcpToolsGrouped,
   mcpToolErrors,
@@ -76,6 +87,13 @@ export function MetricsSidebar({
             <span className="metric-value">{metrics.totalTokens}</span>
           </div>
         </div>
+
+        <ConfigPanel
+          config={config}
+          availableModels={availableModels}
+          onConfigChange={onConfigChange}
+          onRefreshModels={onRefreshModels}
+        />
 
         <McpSettingsPanel
           servers={mcpServers}

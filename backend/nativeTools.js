@@ -1,60 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-
-export const NATIVE_TOOL_DEFINITIONS = [
-  {
-    type: 'function',
-    function: {
-      name: 'read_file',
-      description: 'Read the contents of a file on the local file system.',
-      parameters: {
-        type: 'object',
-        properties: {
-          filePath: {
-            type: 'string',
-            description: 'The absolute or relative path to the file to read.',
-          },
-        },
-        required: ['filePath'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'brave_search',
-      description:
-        'Search the web using the Brave Search API. Use this to find current information, news, or answer questions requiring internet access.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'The search query.',
-          },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'load_skill',
-      description: 'Load the instructions (SKILL.md) for a specific agent skill.',
-      parameters: {
-        type: 'object',
-        properties: {
-          skillName: {
-            type: 'string',
-            description: "The name of the skill to load (e.g., 'vercel-react-best-practices').",
-          },
-        },
-        required: ['skillName'],
-      },
-    },
-  },
-];
+import {
+  NATIVE_TOOL_DEFINITIONS,
+  validateToolArgs,
+} from '../shared/tools.js';
 
 function resolveSafePath(projectRoot, inputPath) {
   const normalized = path.normalize(inputPath);
@@ -86,10 +35,7 @@ export function parseInternalSkillFrontmatter(content) {
 
 export function createNativeToolExecutor({ projectRoot, skillsDir, getBraveApiKey }) {
   async function readFileTool(args) {
-    const { filePath } = args ?? {};
-    if (!filePath || typeof filePath !== 'string') {
-      throw new Error('filePath is required');
-    }
+    const { filePath } = args;
 
     const resolvedPath = resolveSafePath(projectRoot, filePath);
 
@@ -107,10 +53,7 @@ export function createNativeToolExecutor({ projectRoot, skillsDir, getBraveApiKe
   }
 
   async function braveSearchTool(args) {
-    const { query } = args ?? {};
-    if (!query || typeof query !== 'string') {
-      throw new Error('query is required');
-    }
+    const { query } = args;
 
     const apiKey = getBraveApiKey();
     if (!apiKey) {
@@ -144,10 +87,7 @@ export function createNativeToolExecutor({ projectRoot, skillsDir, getBraveApiKe
   }
 
   async function loadSkillTool(args) {
-    const { skillName } = args ?? {};
-    if (!skillName || typeof skillName !== 'string') {
-      throw new Error('skillName is required');
-    }
+    const { skillName } = args;
 
     const safeSkillName = path.basename(skillName);
     const skillMdPath = path.join(skillsDir, safeSkillName, 'SKILL.md');
@@ -179,7 +119,8 @@ export function createNativeToolExecutor({ projectRoot, skillsDir, getBraveApiKe
         throw new Error(`Unsupported native tool: ${toolName}`);
       }
 
-      return handler(args);
+      const validated = validateToolArgs(toolName, args);
+      return handler(validated);
     },
   };
 }

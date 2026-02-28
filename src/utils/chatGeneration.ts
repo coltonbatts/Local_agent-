@@ -6,60 +6,8 @@ import type {
   ToolExecutionEvent,
 } from '../types/chat';
 
-export const DEFAULT_NATIVE_TOOL_DEFINITIONS: ToolDefinition[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'read_file',
-      description: 'Read the contents of a file on the local file system.',
-      parameters: {
-        type: 'object',
-        properties: {
-          filePath: {
-            type: 'string',
-            description: 'The absolute or relative path to the file to read.',
-          },
-        },
-        required: ['filePath'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'brave_search',
-      description:
-        'Search the web using the Brave Search API. Use this to find current information, news, or answer questions requiring internet access.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'The search query.',
-          },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'load_skill',
-      description: 'Load the instructions (SKILL.md) for a specific agent skill.',
-      parameters: {
-        type: 'object',
-        properties: {
-          skillName: {
-            type: 'string',
-            description: "The name of the skill to load (e.g., 'vercel-react-best-practices').",
-          },
-        },
-        required: ['skillName'],
-      },
-    },
-  },
-];
+/** Empty fallback when /api/tools/definitions fails. Backend is the single source of truth. */
+const EMPTY_TOOL_DEFINITIONS: ToolDefinition[] = [];
 
 interface GenerationCallbacks {
   appendEmptyAssistant: () => void;
@@ -76,6 +24,9 @@ interface RunToolConversationParams {
   toolApiKey?: string;
   callbacks: GenerationCallbacks;
   maxRounds?: number;
+  temperature?: number;
+  maxTokens?: number;
+  toolsEnabled?: boolean;
 }
 
 interface ToolExecutionApiResponse {
@@ -110,19 +61,26 @@ async function streamAssistantResponse(
   tools: ToolDefinition[],
   trackMetrics: boolean,
   callbacks: GenerationCallbacks,
+  temperature: number,
+  maxTokens: number,
 ) {
   callbacks.appendEmptyAssistant();
+
+  const body: Record<string, unknown> = {
+    model: modelName,
+    messages: messagesToSend,
+    stream: true,
+    temperature,
+    max_tokens: maxTokens,
+  };
+  if (tools.length > 0) {
+    body.tools = tools;
+  }
 
   const response = await fetch('/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: modelName,
-      messages: messagesToSend,
-      tools,
-      stream: true,
-      temperature: 0.7,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -256,13 +214,17 @@ export async function runToolConversation({
   toolApiKey,
   callbacks,
   maxRounds = 3,
+  temperature = 0.7,
+  maxTokens = 4096,
+  toolsEnabled = true,
 }: RunToolConversationParams) {
   const toolHeaders: HeadersInit = {
     'Content-Type': 'application/json',
     ...(toolApiKey ? { 'x-tool-api-key': toolApiKey } : {}),
   };
 
-  const toolsToUse = tools && tools.length > 0 ? tools : DEFAULT_NATIVE_TOOL_DEFINITIONS;
+  const toolsToUse =
+    toolsEnabled && tools && tools.length > 0 ? tools : EMPTY_TOOL_DEFINITIONS;
 
   let conversation: Message[] = initialConversation;
   let rounds = 0;
@@ -274,6 +236,8 @@ export async function runToolConversation({
       toolsToUse,
       rounds === 0,
       callbacks,
+      temperature,
+      maxTokens,
     );
 
     conversation = [
