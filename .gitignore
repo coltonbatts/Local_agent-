@@ -46,6 +46,10 @@ Sandbox/
 .windsurf/
 .zencoder/
 
+# Tauri / Rust
+src-tauri/target/
+app-icon.png
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
