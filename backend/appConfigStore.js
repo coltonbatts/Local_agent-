@@ -7,6 +7,7 @@ const DEFAULT_CONFIG = {
   temperature: 0.7,
   maxTokens: 4096,
   activeProfile: 'default',
+  chatAutosave: false,
   profiles: {
     default: { label: 'Default', temperature: 0.7, maxTokens: 4096, toolsEnabled: true },
     fast: { label: 'Fast', temperature: 0.3, maxTokens: 1024, toolsEnabled: true },
@@ -53,6 +54,7 @@ function saveConfig(configPath, config) {
     temperature: config.temperature ?? DEFAULT_CONFIG.temperature,
     maxTokens: config.maxTokens ?? DEFAULT_CONFIG.maxTokens,
     activeProfile: config.activeProfile ?? DEFAULT_CONFIG.activeProfile,
+    chatAutosave: config.chatAutosave ?? DEFAULT_CONFIG.chatAutosave,
     profiles: config.profiles ?? DEFAULT_CONFIG.profiles,
   };
   fs.writeFileSync(configPath, JSON.stringify(toWrite, null, 2));

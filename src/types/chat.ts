@@ -51,6 +51,7 @@ export interface ChatMetadata {
   filename: string;
   title: string;
   timestamp: string;
+  pinned?: boolean;
 }
 
 export interface ToolDefinition {

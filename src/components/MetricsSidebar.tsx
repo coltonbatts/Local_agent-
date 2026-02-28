@@ -1,5 +1,6 @@
 import { McpSettingsPanel } from './McpSettingsPanel';
 import { ConfigPanel } from './ConfigPanel';
+import { FlightRecorderPanel } from './FlightRecorderPanel';
 import type { McpServerConfig, McpToolsGroup, Metrics } from '../types/chat';
 import type { AppConfig } from '../types/config';
 
@@ -21,6 +22,9 @@ interface MetricsSidebarProps {
   onUpdateMcpServer: (id: string, patch: Partial<McpServerConfig>) => Promise<void>;
   onDeleteMcpServer: (id: string) => Promise<void>;
   onTestMcpServer: (id: string) => Promise<{ toolCount: number; toolNames: string[] }>;
+  onReplayToolCall?: (eventId: string) => void;
+  replayingEventId?: string | null;
+  toolApiKey?: string;
 }
 
 
@@ -47,6 +51,9 @@ export function MetricsSidebar({
   onUpdateMcpServer,
   onDeleteMcpServer,
   onTestMcpServer,
+  onReplayToolCall,
+  replayingEventId,
+  toolApiKey,
 }: MetricsSidebarProps) {
   return (
     <>
@@ -105,6 +112,12 @@ export function MetricsSidebar({
           onUpdateServer={onUpdateMcpServer}
           onDeleteServer={onDeleteMcpServer}
           onTestServer={onTestMcpServer}
+        />
+
+        <FlightRecorderPanel
+          onReplayToolCall={onReplayToolCall}
+          replayingEventId={replayingEventId}
+          toolApiKey={toolApiKey}
         />
       </aside>
     </>

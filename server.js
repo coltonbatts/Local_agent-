@@ -324,6 +324,46 @@ app.post('/api/tools/execute', requireToolAuth, async (req, res) => {
   }
 });
 
+app.get('/api/tools/events', (req, res) => {
+  try {
+    const tool_name = req.query.tool_name;
+    const status = req.query.status;
+    const server_id = req.query.server_id;
+    const limit = req.query.limit;
+
+    const events = toolEventLogger.listEvents({
+      tool_name: tool_name ? String(tool_name) : undefined,
+      status: status ? String(status) : undefined,
+      server_id: server_id ? String(server_id) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+
+    res.json({ events });
+  } catch (err) {
+    console.error('List Tool Events Error:', err);
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list tool events' });
+  }
+});
+
+app.get('/api/tools/events/:id', (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'event id is required' });
+    }
+
+    const event = toolEventLogger.getEventById(id);
+    if (!event) {
+      return res.status(404).json({ error: `Tool event '${id}' not found` });
+    }
+
+    res.json({ event });
+  } catch (err) {
+    console.error('Get Tool Event Error:', err);
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get tool event' });
+  }
+});
+
 app.post('/api/tools/replay/:eventId', requireToolAuth, async (req, res) => {
   try {
     const eventId = String(req.params.eventId || '').trim();
@@ -478,7 +518,7 @@ app.get('/api/mcp/tools', async (req, res) => {
   }
 });
 
-// Save a chat session
+// Save a chat session (create new)
 app.post('/api/chats', requireToolAuth, (req, res) => {
   try {
     const { messages, title } = req.body;
@@ -493,7 +533,7 @@ app.post('/api/chats', requireToolAuth, (req, res) => {
     const filename = `${safeTimestamp}_${safeTitle}.json`;
     const filepath = path.join(CHATS_DIR, filename);
 
-    fs.writeFileSync(filepath, JSON.stringify({ messages, title, timestamp }, null, 2));
+    fs.writeFileSync(filepath, JSON.stringify({ messages, title, timestamp, pinned: false }, null, 2));
     return res.json({ success: true, filename });
   } catch (err) {
     console.error('Save Chat Error:', err);
@@ -501,7 +541,47 @@ app.post('/api/chats', requireToolAuth, (req, res) => {
   }
 });
 
-// Load all saved chats (metadata)
+// Update a chat session (rename, pin, or overwrite messages)
+app.put('/api/chats/:filename', requireToolAuth, (req, res) => {
+  try {
+    const { filename } = req.params;
+    const safeFilename = path.basename(filename);
+    if (safeFilename !== filename || !safeFilename.endsWith('.json')) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+    const filepath = path.join(CHATS_DIR, safeFilename);
+
+    if (!fs.existsSync(filepath)) {
+      return res.status(404).json({ error: 'Chat file not found' });
+    }
+
+    const existing = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+    const { title, pinned, messages } = req.body ?? {};
+
+    if (typeof title === 'string' && title.trim()) {
+      existing.title = title.trim();
+    }
+    if (typeof pinned === 'boolean') {
+      existing.pinned = pinned;
+    }
+    if (messages && Array.isArray(messages)) {
+      existing.messages = messages;
+    }
+
+    fs.writeFileSync(filepath, JSON.stringify(existing, null, 2));
+    return res.json({
+      success: true,
+      filename: safeFilename,
+      title: existing.title,
+      pinned: !!existing.pinned,
+    });
+  } catch (err) {
+    console.error('Update Chat Error:', err);
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'Error updating chat' });
+  }
+});
+
+// Load all saved chats (metadata) – pinned first, then by timestamp
 app.get('/api/chats', (req, res) => {
   try {
     const files = fs.readdirSync(CHATS_DIR).filter((file) => file.endsWith('.json'));
@@ -514,13 +594,18 @@ app.get('/api/chats', (req, res) => {
             filename: file,
             title: data.title || 'Untitled Chat',
             timestamp: data.timestamp || fs.statSync(filepath).mtime,
+            pinned: !!data.pinned,
           };
         } catch {
           return null;
         }
       })
       .filter((chat) => chat !== null)
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      .sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return new Date(b.timestamp) - new Date(a.timestamp);
+      });
 
     return res.json({ chats });
   } catch (err) {

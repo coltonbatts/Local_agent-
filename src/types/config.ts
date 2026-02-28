@@ -11,5 +11,6 @@ export interface AppConfig {
   temperature: number;
   maxTokens: number;
   activeProfile: string;
+  chatAutosave?: boolean;
   profiles: Record<string, ProfileConfig>;
 }

@@ -26,10 +26,11 @@ A minimal React + Vite UI that talks to a local OpenAI-compatible model server (
 - `CORS_ORIGINS` (tools server): Comma-separated list of allowed origins (default `http://localhost:5173`)
 - `VITE_TOOL_API_KEY` (frontend): Optional client key to match `TOOL_API_KEY`
 
-**Notes**
-- `read_file` is restricted to the project root to avoid path traversal.
-- Tool calls are executed on the tools server, then the model is called again with tool results.
-- Chat persistence endpoints exist (`/api/chats`), but the UI does not currently expose save/load.
+**Chat persistence**
+- **Scratchpad** (localStorage): Unsaved working space. Persists in the browser only. Use "+ New" to start fresh.
+- **Projects** (filesystem): Saved chats in `chats/`. Open the Chats sidebar (☰) to save, load, rename, pin, and export.
+- **Autosave**: When a project is loaded, enable Autosave to write changes to disk automatically.
+- **Export**: Download conversation + tool events as a single JSON bundle.
 
 **Troubleshooting**
 1. “Error connecting to local model” means Check Config panel: model base URL must match your engine (LM Studio: 1234, Ollama: 11434).

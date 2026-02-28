@@ -234,15 +234,35 @@ function App() {
     }
   }, []);
 
+  // Scratchpad: persist to localStorage only when no project is loaded
   useEffect(() => {
-    if (!hasLoadedPersistedMessages || isGenerating) return;
+    if (!hasLoadedPersistedMessages || isGenerating || currentChatFilename) return;
     try {
       const messagesToPersist = messages.filter((message) => message.role !== 'system');
       localStorage.setItem(LOCAL_STORAGE_MESSAGES_KEY, JSON.stringify(messagesToPersist));
     } catch (e) {
-      console.error('Failed to persist messages to localStorage', e);
+      console.error('Failed to persist scratchpad to localStorage', e);
     }
-  }, [messages, isGenerating, hasLoadedPersistedMessages]);
+  }, [messages, isGenerating, hasLoadedPersistedMessages, currentChatFilename]);
+
+  // Project autosave: when autosave is on and we have a project, debounced save to filesystem
+  useEffect(() => {
+    if (!config?.chatAutosave || !currentChatFilename || isGenerating || messages.length === 0) return;
+    const t = setTimeout(async () => {
+      try {
+        const messagesToSave = messages.filter((message) => message.role !== 'system');
+        const res = await fetch(`/api/chats/${currentChatFilename}`, {
+          method: 'PUT',
+          headers: buildToolHeaders(true),
+          body: JSON.stringify({ messages: messagesToSave }),
+        });
+        if (!res.ok) throw new Error('Autosave failed');
+      } catch (e) {
+        console.error('Autosave failed', e);
+      }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [messages, currentChatFilename, isGenerating, config?.chatAutosave, buildToolHeaders]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: isGenerating ? 'auto' : 'smooth' });
@@ -254,14 +274,46 @@ function App() {
 
   const saveChat = async () => {
     if (messages.length === 0) return;
-    try {
-      const firstUserMsg = messages.find((m) => m.role === 'user')?.content || 'Untitled Chat';
-      const title = firstUserMsg.substring(0, 40);
+    const messagesToSave = messages.filter((m) => m.role !== 'system');
+    const firstUserMsg = messages.find((m) => m.role === 'user')?.content || 'Untitled Chat';
+    const title = firstUserMsg.substring(0, 40);
 
+    try {
+      if (currentChatFilename) {
+        const res = await fetch(`/api/chats/${currentChatFilename}`, {
+          method: 'PUT',
+          headers: buildToolHeaders(true),
+          body: JSON.stringify({ messages: messagesToSave, title }),
+        });
+        const data = await res.json();
+        if (data.success) fetchChats();
+      } else {
+        const res = await fetch('/api/chats', {
+          method: 'POST',
+          headers: buildToolHeaders(true),
+          body: JSON.stringify({ messages: messagesToSave, title }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          fetchChats();
+          setCurrentChatFilename(data.filename);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to save chat', e);
+    }
+  };
+
+  const saveChatAsNew = async () => {
+    if (messages.length === 0) return;
+    const messagesToSave = messages.filter((m) => m.role !== 'system');
+    const firstUserMsg = messages.find((m) => m.role === 'user')?.content || 'Untitled Chat';
+    const title = firstUserMsg.substring(0, 40);
+    try {
       const res = await fetch('/api/chats', {
         method: 'POST',
         headers: buildToolHeaders(true),
-        body: JSON.stringify({ messages, title }),
+        body: JSON.stringify({ messages: messagesToSave, title }),
       });
       const data = await res.json();
       if (data.success) {
@@ -269,7 +321,7 @@ function App() {
         setCurrentChatFilename(data.filename);
       }
     } catch (e) {
-      console.error('Failed to save chat', e);
+      console.error('Failed to save copy', e);
     }
   };
 
@@ -287,11 +339,61 @@ function App() {
     }
   };
 
+  const renameChat = useCallback(async (filename: string, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    try {
+      const res = await fetch(`/api/chats/${filename}`, {
+        method: 'PUT',
+        headers: buildToolHeaders(true),
+        body: JSON.stringify({ title: newTitle.trim() }),
+      });
+      await readJsonResponse(res, 'Failed to rename chat');
+      fetchChats();
+    } catch (e) {
+      console.error('Failed to rename chat', e);
+    }
+  }, [buildToolHeaders, fetchChats]);
+
+  const togglePinChat = useCallback(async (filename: string, pinned: boolean) => {
+    try {
+      const res = await fetch(`/api/chats/${filename}`, {
+        method: 'PUT',
+        headers: buildToolHeaders(true),
+        body: JSON.stringify({ pinned }),
+      });
+      await readJsonResponse(res, 'Failed to pin chat');
+      fetchChats();
+    } catch (e) {
+      console.error('Failed to pin chat', e);
+    }
+  }, [buildToolHeaders, fetchChats]);
+
+  const exportChat = useCallback(() => {
+    const messagesToExport = messages.filter((m) => m.role !== 'system');
+    const firstUserMsg = messagesToExport.find((m) => m.role === 'user')?.content || 'Untitled';
+    const title = currentChatFilename
+      ? chats.find((c) => c.filename === currentChatFilename)?.title ?? firstUserMsg.substring(0, 40)
+      : firstUserMsg.substring(0, 40);
+    const bundle = {
+      title,
+      timestamp: new Date().toISOString(),
+      exportedAt: new Date().toISOString(),
+      messages: messagesToExport,
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `chat-export-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, [messages, currentChatFilename, chats]);
+
   const createNewChat = () => {
     if (isGenerating) return;
     setMessages([]);
     setCurrentChatFilename(null);
     setMetrics(createDefaultMetrics());
+    localStorage.removeItem(LOCAL_STORAGE_MESSAGES_KEY);
   };
 
   const clearChat = () => {
@@ -483,6 +585,15 @@ function App() {
         onClose={() => setIsLeftSidebarOpen(false)}
         onCreateNewChat={createNewChat}
         onLoadChat={loadChat}
+        onRenameChat={renameChat}
+        onTogglePinChat={togglePinChat}
+        onExportChat={exportChat}
+        onSaveChat={saveChat}
+        onSaveChatAsNew={saveChatAsNew}
+        config={config}
+        onConfigChange={updateConfig}
+        hasMessages={messages.length > 0}
+        isGenerating={isGenerating}
       />
 
       <main className="chat-area">
@@ -535,6 +646,9 @@ function App() {
         onUpdateMcpServer={updateMcpServer}
         onDeleteMcpServer={deleteMcpServer}
         onTestMcpServer={testMcpServer}
+        onReplayToolCall={replayToolCall}
+        replayingEventId={replayingEventId}
+        toolApiKey={TOOL_API_KEY}
       />
     </div>
   );

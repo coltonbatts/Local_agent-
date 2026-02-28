@@ -173,11 +173,47 @@ export function createToolEventLogger(projectRoot) {
     return events.find((event) => event.id === id) ?? null;
   }
 
+  function listEvents(filters = {}) {
+    const events = parseEvents(logFilePath);
+    let filtered = events;
+
+    const { tool_name, status, server_id, limit = 100 } = filters;
+
+    if (tool_name && typeof tool_name === 'string') {
+      const needle = tool_name.trim().toLowerCase();
+      if (needle) {
+        filtered = filtered.filter((e) => {
+          const name = (e.tool_name || '').toLowerCase();
+          const mcpName = (e.mcp_tool_name || '').toLowerCase();
+          return name.includes(needle) || mcpName.includes(needle);
+        });
+      }
+    }
+
+    if (status && typeof status === 'string') {
+      const needle = status.trim().toLowerCase();
+      if (needle) {
+        filtered = filtered.filter((e) => (e.status || '').toLowerCase() === needle);
+      }
+    }
+
+    if (server_id && typeof server_id === 'string') {
+      const needle = server_id.trim().toLowerCase();
+      if (needle) {
+        filtered = filtered.filter((e) => (e.server_id || '').toLowerCase() === needle);
+      }
+    }
+
+    filtered.sort((a, b) => (b.sequence || 0) - (a.sequence || 0));
+    return filtered.slice(0, Math.max(0, Number(limit) || 100));
+  }
+
   return {
     startEvent,
     finalizeSuccess,
     finalizeError,
     persist,
     getEventById,
+    listEvents,
   };
 }
