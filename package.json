@@ -16,10 +16,14 @@
     "test:run": "node --test --test-reporter=spec",
     "preview": "vite preview",
     "doctor": "node scripts/doctor.js",
-    "sync-skills": "tsx scripts/sync-skills.ts"
+    "sync-skills": "tsx scripts/sync-skills.ts",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@tauri-apps/api": "^2.10.1",
     "@types/react-syntax-highlighter": "^15.5.13",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
@@ -35,6 +39,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@tauri-apps/cli": "^2.10.0",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

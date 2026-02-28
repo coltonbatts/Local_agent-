@@ -729,6 +729,21 @@ app.get('/api/chats/:filename', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Tool Execution Server running on http://localhost:${PORT}`);
+// Health check endpoint (must respond quickly, never block)
+app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+// Serve built frontend in production (when not behind Vite dev server)
+if (process.env.NODE_ENV === 'production') {
+  const distPath = path.join(__dirname, 'dist');
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/v1')) return next();
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+}
+
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`Tool Execution Server running on http://127.0.0.1:${PORT}`);
 });
