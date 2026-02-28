@@ -3,6 +3,8 @@ import type { Metrics } from '../types/chat';
 interface MetricsSidebarProps {
   metrics: Metrics;
   isGenerating: boolean;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 function formatValue(value: number | null, decimals = 2) {
@@ -10,56 +12,47 @@ function formatValue(value: number | null, decimals = 2) {
   return value.toFixed(decimals);
 }
 
-export function MetricsSidebar({ metrics, isGenerating }: MetricsSidebarProps) {
+export function MetricsSidebar({ metrics, isGenerating, isOpen, onClose }: MetricsSidebarProps) {
   return (
-    <aside className="glass-panel metrics-sidebar">
-      <div className="sidebar-header">
-        <h2 className="sidebar-title">
-          <div className={`status-dot ${isGenerating ? 'generating' : ''}`}></div>
-          System Telemetry
-        </h2>
-      </div>
+    <>
+      {isOpen && <div className="mobile-overlay" onClick={onClose} />}
+      <aside className={`sidebar right ${isOpen ? 'open' : ''}`}>
+        <div className="sidebar-header">
+          <h2 className="sidebar-title">
+            Inspector {isGenerating && <span className="status-dot generating"></span>}
+          </h2>
+          {onClose && (
+            <button className="sidebar-toggle-mobile" onClick={onClose} aria-label="Close Inspector">
+              ✕
+            </button>
+          )}
+        </div>
 
-      <div className="metrics-grid">
-        <div className="metric-card">
-          <div className="metric-label">TTFT (Time To First Token)</div>
-          <div className="metric-value">
-            {formatValue(metrics.ttft, 0)}
-            <span className="metric-unit">ms</span>
+        <div className="metrics-content">
+          <div className="metric-row">
+            <span className="metric-label">TTFT</span>
+            <span className="metric-value">
+              {formatValue(metrics.ttft, 0)}<span className="metric-unit">ms</span>
+            </span>
+          </div>
+          <div className="metric-row">
+            <span className="metric-label">Speed</span>
+            <span className="metric-value">
+              {formatValue(metrics.tokensPerSec)}<span className="metric-unit">t/s</span>
+            </span>
+          </div>
+          <div className="metric-row">
+            <span className="metric-label">Latency</span>
+            <span className="metric-value">
+              {formatValue(metrics.totalLatency, 0)}<span className="metric-unit">ms</span>
+            </span>
+          </div>
+          <div className="metric-row">
+            <span className="metric-label">Tokens</span>
+            <span className="metric-value">{metrics.totalTokens}</span>
           </div>
         </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Generation Speed</div>
-          <div className="metric-value">
-            {formatValue(metrics.tokensPerSec)}
-            <span className="metric-unit">tok/s</span>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Total Latency</div>
-          <div className="metric-value">
-            {formatValue(metrics.totalLatency, 0)}
-            <span className="metric-unit">ms</span>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Tokens Rendered</div>
-          <div className="metric-value">{metrics.totalTokens}</div>
-        </div>
-      </div>
-
-      <div className="connection-info">
-        <div className="endpoint-badge">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-          </svg>
-          localhost:1234
-        </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }

@@ -28,11 +28,14 @@ function App() {
   const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
   const [modelName, setModelName] = useState('Local Model');
   const [chats, setChats] = useState<ChatMetadata[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [currentChatFilename, setCurrentChatFilename] = useState<string | null>(null);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const TOOL_API_KEY = import.meta.env.VITE_TOOL_API_KEY as string | undefined;
 
-  const fetchSkills = async () => {
+  const fetchSkills = useCallback(async () => {
     try {
       const res = await fetch('/api/skills');
       const data = await res.json();
@@ -40,21 +43,25 @@ function App() {
     } catch (e) {
       console.error('Failed to load skills', e);
     }
-  };
+  }, []);
 
-  const fetchModel = async () => {
+  const fetchModel = useCallback(async () => {
     try {
       const res = await fetch('/v1/models');
       const data = await res.json();
       if (data.data && data.data.length > 0) {
-        setModelName(data.data[0].id);
+        const models = data.data.map((m: { id: string }) => m.id);
+        setAvailableModels(models);
+        if (modelName === 'Local Model') {
+          setModelName(models[0]);
+        }
       }
     } catch (e) {
       console.error('Failed to load model name', e);
     }
-  };
+  }, [modelName]);
 
-  const fetchChats = async () => {
+  const fetchChats = useCallback(async () => {
     try {
       const res = await fetch('/api/chats');
       const data = await res.json();
@@ -62,13 +69,13 @@ function App() {
     } catch (e) {
       console.error('Failed to load chats', e);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchSkills();
     fetchModel();
     fetchChats();
-  }, []);
+  }, [fetchSkills, fetchModel, fetchChats]);
 
   useEffect(() => {
     try {
@@ -194,6 +201,7 @@ function App() {
     try {
       await runToolConversation({
         initialConversation: requestMessages,
+        modelName: modelName,
         toolApiKey: TOOL_API_KEY,
         callbacks: {
           appendEmptyAssistant: () => {
@@ -229,7 +237,7 @@ function App() {
         ...prev.slice(0, -1),
         {
           role: 'assistant',
-          content: '⚠️ Error connecting to local model. Is the server running at http://localhost:1234/v1?',
+          content: `⚠️ Error: ${error instanceof Error ? error.message : 'Unknown error connecting to local model'}. Check if LM Studio has the model loaded and the server is running on port 1234.`,
         },
       ]);
     } finally {
@@ -249,17 +257,23 @@ function App() {
       <ChatHistorySidebar
         chats={chats}
         currentChatFilename={currentChatFilename}
+        isOpen={isLeftSidebarOpen}
+        onClose={() => setIsLeftSidebarOpen(false)}
         onCreateNewChat={createNewChat}
         onLoadChat={loadChat}
       />
 
-      <main className="glass-panel chat-area">
+      <main className="chat-area">
         <ChatHeader
           modelName={modelName}
+          availableModels={availableModels}
+          onModelChange={setModelName}
           isGenerating={isGenerating}
           hasMessages={messages.length > 0}
           onSaveChat={saveChat}
           onClearChat={clearChat}
+          onToggleLeftSidebar={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+          onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
         />
 
         <MessageList
@@ -268,16 +282,23 @@ function App() {
           messagesEndRef={messagesEndRef}
         />
 
-        <ChatInput
-          input={input}
-          isGenerating={isGenerating}
-          onInputChange={setInput}
-          onSubmit={handleSubmit}
-          onKeyDown={handleKeyDown}
-        />
+        <div className="input-area">
+          <ChatInput
+            input={input}
+            isGenerating={isGenerating}
+            onInputChange={setInput}
+            onSubmit={handleSubmit}
+            onKeyDown={handleKeyDown}
+          />
+        </div>
       </main>
 
-      <MetricsSidebar metrics={metrics} isGenerating={isGenerating} />
+      <MetricsSidebar
+        metrics={metrics}
+        isGenerating={isGenerating}
+        isOpen={isRightSidebarOpen}
+        onClose={() => setIsRightSidebarOpen(false)}
+      />
     </div>
   );
 }

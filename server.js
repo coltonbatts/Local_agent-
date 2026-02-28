@@ -13,7 +13,7 @@ const PROJECT_ROOT = path.resolve(__dirname);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173')
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://127.0.0.1:5174')
     .split(',')
     .map(o => o.trim())
     .filter(Boolean);
@@ -204,10 +204,12 @@ app.post('/api/chats', requireToolAuth, (req, res) => {
             return res.status(400).json({ error: 'messages array is required' });
         }
 
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const now = new Date();
+        const timestamp = now.toISOString();
+        const safeTimestamp = timestamp.replace(/[:.]/g, '-');
         // create a safe filename
         const safeTitle = (title || 'chat').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        const filename = `${timestamp}_${safeTitle}.json`;
+        const filename = `${safeTimestamp}_${safeTitle}.json`;
         const filepath = path.join(CHATS_DIR, filename);
 
         fs.writeFileSync(filepath, JSON.stringify({ messages, title, timestamp }, null, 2));

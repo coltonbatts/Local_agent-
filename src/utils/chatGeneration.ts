@@ -65,6 +65,7 @@ interface GenerationCallbacks {
 
 interface RunToolConversationParams {
   initialConversation: Message[];
+  modelName: string;
   toolApiKey?: string;
   callbacks: GenerationCallbacks;
   maxRounds?: number;
@@ -72,6 +73,7 @@ interface RunToolConversationParams {
 
 async function streamAssistantResponse(
   messagesToSend: Message[],
+  modelName: string,
   trackMetrics: boolean,
   callbacks: GenerationCallbacks,
 ) {
@@ -81,7 +83,7 @@ async function streamAssistantResponse(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'local-model',
+      model: modelName,
       messages: messagesToSend,
       tools: TOOL_DEFINITIONS,
       stream: true,
@@ -196,6 +198,7 @@ async function streamAssistantResponse(
 
 export async function runToolConversation({
   initialConversation,
+  modelName,
   toolApiKey,
   callbacks,
   maxRounds = 3,
@@ -209,7 +212,7 @@ export async function runToolConversation({
   let rounds = 0;
 
   while (true) {
-    const { assistantContent, toolCalls } = await streamAssistantResponse(conversation, rounds === 0, callbacks);
+    const { assistantContent, toolCalls } = await streamAssistantResponse(conversation, modelName, rounds === 0, callbacks);
     conversation = [
       ...conversation,
       {

@@ -3,6 +3,8 @@ import type { ChatMetadata } from '../types/chat';
 interface ChatHistorySidebarProps {
   chats: ChatMetadata[];
   currentChatFilename: string | null;
+  isOpen?: boolean;
+  onClose?: () => void;
   onCreateNewChat: () => void;
   onLoadChat: (filename: string) => void;
 }
@@ -10,41 +12,55 @@ interface ChatHistorySidebarProps {
 export function ChatHistorySidebar({
   chats,
   currentChatFilename,
+  isOpen,
+  onClose,
   onCreateNewChat,
   onLoadChat,
 }: ChatHistorySidebarProps) {
   return (
-    <aside className="glass-panel history-sidebar">
-      <header className="sidebar-header">
-        <h2 className="sidebar-title">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 8v4l3 3"></path>
-            <circle cx="12" cy="12" r="9"></circle>
-          </svg>
-          Chat History
-        </h2>
-        <button className="new-chat-button" onClick={onCreateNewChat}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          New Chat
-        </button>
-      </header>
-
-      <div className="chat-list">
-        {chats.length === 0 && <div className="empty-history">No saved chats yet</div>}
-        {chats.map((chat) => (
-          <div
-            key={chat.filename}
-            className={`chat-item ${currentChatFilename === chat.filename ? 'active' : ''}`}
-            onClick={() => onLoadChat(chat.filename)}
-          >
-            <div className="chat-item-title">{chat.title}</div>
-            <div className="chat-item-date">{new Date(chat.timestamp).toLocaleDateString()}</div>
+    <>
+      {isOpen && <div className="mobile-overlay" onClick={onClose} />}
+      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+        <header className="sidebar-header">
+          <h2 className="sidebar-title">History</h2>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="new-chat-button" onClick={onCreateNewChat}>
+              + New
+            </button>
+            {onClose && (
+              <button className="sidebar-toggle-mobile" onClick={onClose} aria-label="Close Sidebar">
+                ✕
+              </button>
+            )}
           </div>
-        ))}
-      </div>
-    </aside>
+        </header>
+
+        <div className="chat-list">
+          {chats.length === 0 && <div className="empty-history">No saved chats yet</div>}
+          {chats.map((chat) => (
+            <div
+              key={chat.filename}
+              className={`chat-item ${currentChatFilename === chat.filename ? 'active' : ''}`}
+              onClick={() => {
+                onLoadChat(chat.filename);
+                if (onClose) onClose();
+              }}
+            >
+              <div className="chat-item-title">{chat.title}</div>
+              <div className="chat-item-date">
+                {(() => {
+                  let date = new Date(chat.timestamp);
+                  if (isNaN(date.getTime()) && typeof chat.timestamp === 'string') {
+                    const fixed = chat.timestamp.replace(/(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/, '$1T$2:$3:$4.$5Z');
+                    date = new Date(fixed);
+                  }
+                  return isNaN(date.getTime()) ? 'Unknown Date' : date.toLocaleDateString();
+                })()}
+              </div>
+            </div>
+          ))}
+        </div>
+      </aside>
+    </>
   );
 }

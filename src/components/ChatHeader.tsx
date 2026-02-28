@@ -1,46 +1,51 @@
 interface ChatHeaderProps {
   modelName: string;
+  availableModels: string[];
+  onModelChange: (model: string) => void;
   isGenerating: boolean;
   hasMessages: boolean;
   onSaveChat: () => void;
   onClearChat: () => void;
+  onToggleLeftSidebar: () => void;
+  onToggleRightSidebar: () => void;
 }
 
 export function ChatHeader({
   modelName,
+  availableModels,
+  onModelChange,
   isGenerating,
   hasMessages,
   onSaveChat,
   onClearChat,
+  onToggleLeftSidebar,
+  onToggleRightSidebar,
 }: ChatHeaderProps) {
   return (
     <header className="chat-header">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', width: '100%' }}>
-        <div className="model-indicator-pulse"></div>
-        <h1 className="chat-title">
-          Chatting with <span className="highlight-model">{modelName}</span>
-        </h1>
-        <button
-          className="save-chat-button"
-          onClick={onSaveChat}
-          disabled={!hasMessages || isGenerating}
-          title="Save current chat"
+      <button className="sidebar-toggle-mobile" onClick={onToggleLeftSidebar}>☰</button>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <select
+          style={{ background: 'transparent', color: 'inherit', border: '1px solid var(--border-subtle)', fontFamily: 'var(--font-ui)', padding: '4px', outline: 'none' }}
+          value={modelName}
+          onChange={(e) => onModelChange(e.target.value)}
+          disabled={isGenerating}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-            <polyline points="17 21 17 13 7 13 7 21"></polyline>
-            <polyline points="7 3 7 8 15 8"></polyline>
-          </svg>
-          Save
-        </button>
-        <button
-          className="clear-chat-button"
-          onClick={onClearChat}
-          disabled={!hasMessages || isGenerating}
-          title="Clear local chat history"
-        >
-          Clear Chat
-        </button>
+          {availableModels.length === 0 ? (
+            <option value={modelName}>{modelName}</option>
+          ) : (
+            availableModels.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))
+          )}
+        </select>
+      </div>
+
+      <div className="chat-header-actions">
+        <button onClick={onSaveChat} disabled={!hasMessages || isGenerating}>[SAVE]</button>
+        <button onClick={onClearChat} disabled={!hasMessages || isGenerating}>[CLEAR]</button>
+        <button className="sidebar-toggle-mobile" onClick={onToggleRightSidebar}>⚙</button>
       </div>
     </header>
   );
