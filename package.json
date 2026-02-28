@@ -19,7 +19,8 @@
     "sync-skills": "tsx scripts/sync-skills.ts",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "dev:tauri": "concurrently -k \"npm:dev:backend\" \"npm:dev:frontend\" \"npm:tauri:dev\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

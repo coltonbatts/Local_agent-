@@ -48,21 +48,33 @@ app.use(
     },
   })
 );
-app.use(express.json({ limit: '1mb' }));
-
 // Model API proxy – forwards /v1/* to configured model base URL (LM Studio, Ollama, etc.)
 app.use(
   '/v1',
   createProxyMiddleware({
-    target: 'http://127.0.0.1:1234',
+    target: 'http://localhost:1234/v1',
     changeOrigin: true,
-    router: () => appConfigStore.getModelBaseUrl(),
-    onError: (err, req, res) => {
-      console.error('Model proxy error:', err.message);
-      res.status(502).json({ error: `Model server unreachable: ${err.message}` });
+    router: () => {
+      const url = appConfigStore.getModelBaseUrl() || 'http://localhost:1234/v1';
+      console.log(`[Proxy] Routing request to: ${url}`);
+      return url;
+    },
+    on: {
+      proxyReq: (proxyReq, req, res) => {
+        console.log(`[Proxy] Request: ${req.method} ${req.url}`);
+      },
+      proxyRes: (proxyRes, req, res) => {
+        console.log(`[Proxy] Response: ${proxyRes.statusCode} from ${req.url}`);
+      },
+      error: (err, req, res) => {
+        console.error('Model proxy error:', err.message);
+        res.status(502).json({ error: `Model server unreachable: ${err.message}` });
+      },
     },
   })
 );
+
+app.use(express.json({ limit: '1mb' }));
 
 const toolApiKey = process.env.TOOL_API_KEY;
 const requireToolAuth = (req, res, next) => {
@@ -567,11 +579,11 @@ app.get('/api/mcp/tools', async (req, res) => {
 
     const filtered = query
       ? tools.filter((tool) => {
-          const haystack = [tool.server_name, tool.server_id, tool.tool_name, tool.description]
-            .join(' ')
-            .toLowerCase();
-          return haystack.includes(query);
-        })
+        const haystack = [tool.server_name, tool.server_id, tool.tool_name, tool.description]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(query);
+      })
       : tools;
 
     const grouped = filtered.reduce((acc, tool) => {

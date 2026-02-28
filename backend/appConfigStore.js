@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 const DEFAULT_CONFIG = {
-  modelBaseUrl: 'http://127.0.0.1:1234',
+  modelBaseUrl: 'http://localhost:1234/v1',
   defaultModel: null,
   temperature: 0.7,
   maxTokens: 4096,

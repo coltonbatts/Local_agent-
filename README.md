@@ -15,8 +15,8 @@ A minimal React + Vite UI that talks to a local OpenAI-compatible model server (
 1. Install dependencies: `npm install`
 2. Start your local model server (e.g. LM Studio on port 1234, or Ollama on 11434)
 3. Start the tools server and frontend:
-   1. `npm run dev:backend`
-   2. `npm run dev:frontend`
+   - **Web version**: `npm run dev:all` (starts Express + Vite)
+   - **Tauri Desktop app**: `npm run dev:tauri` (starts Express + Vite + Tauri)
 
 **Config** (stored in `config/app-config.json`)
 
