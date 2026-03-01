@@ -38,6 +38,8 @@ interface MetricsSidebarProps {
   skillsSyncState?: SkillsSyncState | null;
   onSyncSkills?: () => Promise<void>;
   onRefreshSkills?: () => void;
+  onRequireOpenRouterKey: () => void;
+  openRouterKeyPrompt?: string | null;
 }
 
 function formatValue(value: number | null, decimals = 2) {
@@ -72,6 +74,8 @@ export function MetricsSidebar({
   skillsSyncState = null,
   onSyncSkills,
   onRefreshSkills,
+  onRequireOpenRouterKey,
+  openRouterKeyPrompt = null,
 }: MetricsSidebarProps) {
   return (
     <>
@@ -127,6 +131,8 @@ export function MetricsSidebar({
           onRefreshModels={onRefreshModels}
           onTestOpenRouterConnection={onTestOpenRouterConnection}
           lastProviderDebug={lastProviderDebug}
+          onRequireOpenRouterKey={onRequireOpenRouterKey}
+          openRouterKeyPrompt={openRouterKeyPrompt}
         />
 
         <SkillsPanel

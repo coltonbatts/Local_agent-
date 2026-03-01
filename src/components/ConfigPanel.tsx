@@ -20,6 +20,8 @@ interface ConfigPanelProps {
   onRefreshModels: (forceRefresh?: boolean) => void;
   onTestOpenRouterConnection: (settings: OpenRouterSettings) => Promise<OpenRouterConnectionStatus>;
   lastProviderDebug: ProviderDebugInfo | null;
+  onRequireOpenRouterKey: () => void;
+  openRouterKeyPrompt?: string | null;
 }
 
 const DEFAULT_PROVIDER: ProviderId = 'local';
@@ -31,6 +33,8 @@ export function ConfigPanel({
   onRefreshModels,
   onTestOpenRouterConnection,
   lastProviderDebug,
+  onRequireOpenRouterKey,
+  openRouterKeyPrompt = null,
 }: ConfigPanelProps) {
   const [modelBaseUrl, setModelBaseUrl] = useState(config?.modelBaseUrl ?? 'http://127.0.0.1:1234/v1');
   const [provider, setProvider] = useState<ProviderId>(config?.provider ?? DEFAULT_PROVIDER);
@@ -110,6 +114,12 @@ export function ConfigPanel({
   };
 
   const handleSaveAll = () => {
+    if (provider === 'openrouter' && openRouterApiKey.trim().length === 0) {
+      setStatus('OpenRouter API key is required before selecting OpenRouter provider.');
+      onRequireOpenRouterKey();
+      return;
+    }
+
     const currentSelections = {
       local: config?.providerModelSelections?.local ?? null,
       openrouter: config?.providerModelSelections?.openrouter ?? null,
@@ -133,7 +143,22 @@ export function ConfigPanel({
     });
   };
 
+  const handleProviderChange = (nextProvider: ProviderId) => {
+    if (nextProvider === 'openrouter' && openRouterApiKey.trim().length === 0) {
+      setStatus('OpenRouter API key is required before selecting OpenRouter provider.');
+      onRequireOpenRouterKey();
+      return;
+    }
+    setProvider(nextProvider);
+  };
+
   const handleTestConnection = async () => {
+    if (openRouterApiKey.trim().length === 0) {
+      setConnectionStatus('Enter an OpenRouter API key first.');
+      onRequireOpenRouterKey();
+      return;
+    }
+
     setIsTestingConnection(true);
     setConnectionStatus(null);
 
@@ -162,7 +187,7 @@ export function ConfigPanel({
 
       <div className="config-field">
         <label>Provider</label>
-        <select value={provider} onChange={(e) => setProvider(e.target.value as ProviderId)}>
+        <select value={provider} onChange={(e) => handleProviderChange(e.target.value as ProviderId)}>
           <option value="local">Local OpenAI-compatible</option>
           <option value="openrouter">OpenRouter</option>
         </select>
@@ -210,6 +235,7 @@ export function ConfigPanel({
           spellCheck={false}
           placeholder="sk-or-v1-..."
         />
+        {openRouterKeyPrompt && <span className="config-hint config-warning">{openRouterKeyPrompt}</span>}
       </div>
 
       <div className="config-field">
@@ -238,7 +264,7 @@ export function ConfigPanel({
           onClick={() => void handleTestConnection()}
           disabled={isTestingConnection || openRouterApiKey.trim().length === 0}
         >
-          {isTestingConnection ? 'Testing…' : 'Test connection'}
+          {isTestingConnection ? 'Testing…' : 'Test OpenRouter'}
         </button>
       </div>
       {connectionStatus && <div className="config-status">{connectionStatus}</div>}

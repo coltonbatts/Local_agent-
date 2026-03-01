@@ -62,13 +62,14 @@ export function createLocalOpenAICompatibleProvider(): ProviderModelApi {
   return {
     id: 'local',
 
-    async listModels(): Promise<ProviderModelsResult> {
+    async getModels(): Promise<ProviderModelsResult> {
       const headers: Record<string, string> = {
         Accept: 'application/json',
       };
 
       const response = await fetch(LOCAL_MODELS_ENDPOINT, { headers });
       const requestId = extractRequestId(response.headers);
+      const fetchedAt = Date.now();
 
       await ensureOkOrThrow(response, LOCAL_MODELS_ENDPOINT);
 
@@ -77,6 +78,7 @@ export function createLocalOpenAICompatibleProvider(): ProviderModelApi {
       return {
         models: toLocalModels(payload),
         fromCache: false,
+        fetchedAt,
         debug: {
           provider: 'local',
           operation: 'models',
@@ -84,12 +86,12 @@ export function createLocalOpenAICompatibleProvider(): ProviderModelApi {
           status: response.status,
           requestId,
           headers,
-          timestamp: toIsoTimestamp(),
+          timestamp: toIsoTimestamp(fetchedAt),
         },
       };
     },
 
-    async createChatCompletion(request: ProviderChatRequest): Promise<ProviderChatCompletionInitResult> {
+    async chatCompletion(request: ProviderChatRequest): Promise<ProviderChatCompletionInitResult> {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };

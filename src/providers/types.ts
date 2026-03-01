@@ -14,6 +14,7 @@ export interface ProviderModel {
   description?: string | null;
   contextLength?: number | null;
   visionCapable?: boolean;
+  toolCallingCapable?: boolean;
   provider: ProviderId;
 }
 
@@ -33,6 +34,7 @@ export interface ProviderModelsResult {
   models: ProviderModel[];
   debug: ProviderDebugInfo;
   fromCache: boolean;
+  fetchedAt: number | null;
 }
 
 export interface ProviderChatRequest {
@@ -66,8 +68,8 @@ export interface ProviderRuntimeOptions {
 
 export interface ProviderModelApi {
   id: ProviderId;
-  listModels: (options?: ProviderRuntimeOptions) => Promise<ProviderModelsResult>;
-  createChatCompletion: (
+  getModels: (options?: ProviderRuntimeOptions) => Promise<ProviderModelsResult>;
+  chatCompletion: (
     request: ProviderChatRequest,
     options?: ProviderRuntimeOptions
   ) => Promise<ProviderChatCompletionInitResult>;

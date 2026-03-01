@@ -73,6 +73,64 @@ interface ReplayToolResponse {
   result?: unknown;
 }
 
+interface ProviderModelsUiState {
+  count: number;
+  fetchedAt: number | null;
+  fromCache: boolean;
+  loading: boolean;
+  error: string | null;
+}
+
+function createInitialProviderModelsState(): Record<ProviderId, ProviderModelsUiState> {
+  return {
+    local: {
+      count: 0,
+      fetchedAt: null,
+      fromCache: false,
+      loading: false,
+      error: null,
+    },
+    openrouter: {
+      count: 0,
+      fetchedAt: null,
+      fromCache: false,
+      loading: false,
+      error: null,
+    },
+  };
+}
+
+function formatModelLoadError(error: unknown, provider: ProviderId): string {
+  if (error instanceof ProviderRequestError) {
+    if (provider === 'openrouter') {
+      if (error.meta.code === 'OPENROUTER_API_KEY_MISSING') {
+        return 'Missing OpenRouter API key. Open Settings and add your key.';
+      }
+      if (error.meta.status === 401 || error.meta.status === 403) {
+        return 'Invalid OpenRouter API key (401/403).';
+      }
+      if (error.meta.code === 'OPENROUTER_TIMEOUT') {
+        return 'OpenRouter model fetch timed out.';
+      }
+      if (error.meta.code === 'OPENROUTER_NETWORK_ERROR') {
+        return 'OpenRouter network/CORS error. Check connectivity and proxy settings.';
+      }
+      if (error.meta.code === 'OPENROUTER_MODELS_PARSE_ERROR') {
+        return 'OpenRouter models response parse error.';
+      }
+    }
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return provider === 'openrouter'
+    ? 'Failed to load OpenRouter models.'
+    : 'Failed to load local models.';
+}
+
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -85,6 +143,11 @@ function App() {
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>('local');
   const [chats, setChats] = useState<ChatMetadata[]>([]);
   const [availableModels, setAvailableModels] = useState<ProviderModel[]>([]);
+  const [providerModelsState, setProviderModelsState] = useState<Record<
+    ProviderId,
+    ProviderModelsUiState
+  >>(() => createInitialProviderModelsState());
+  const [openRouterKeyPrompt, setOpenRouterKeyPrompt] = useState<string | null>(null);
   const [lastProviderDebug, setLastProviderDebug] = useState<ProviderDebugInfo | null>(null);
   const [currentChatFilename, setCurrentChatFilename] = useState<string | null>(null);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
@@ -142,64 +205,133 @@ function App() {
     [localProvider, openRouterProvider]
   );
 
-  const fetchModel = useCallback(async (forceRefresh = false, providerOverride?: ProviderId) => {
-    const requestProvider = providerOverride ?? selectedProvider;
-    const providerClient = getProviderClient(requestProvider);
+  const fetchModel = useCallback(
+    async (forceRefresh = false, providerOverride?: ProviderId) => {
+      const requestProvider = providerOverride ?? selectedProvider;
 
-    try {
-      const result = await providerClient.listModels({
-        forceRefresh,
-        openRouterSettings,
-      });
-      setLastProviderDebug(result.debug);
-      setAvailableModels(result.models);
-
-      const modelIds = result.models.map((m) => m.id);
-      if (modelIds.length === 0) {
-        setModelName(requestProvider === 'openrouter' ? 'No OpenRouter models' : 'No Local models');
+      if (requestProvider === 'openrouter' && !openRouterSettings.apiKey.trim()) {
+        if (requestProvider === selectedProvider) {
+          setAvailableModels([]);
+        }
+        setProviderModelsState((prev) => ({
+          ...prev,
+          openrouter: {
+            ...prev.openrouter,
+            loading: false,
+            error: 'Missing OpenRouter API key. Open Settings and add your key.',
+            count: 0,
+            fromCache: false,
+            fetchedAt: prev.openrouter.fetchedAt,
+          },
+        }));
         return;
       }
 
-      const preferredModel =
-        config?.providerModelSelections?.[requestProvider] ??
-        (requestProvider === config?.provider ? config.defaultModel : null);
+      const providerClient = getProviderClient(requestProvider);
 
-      setModelName((prev) => {
-        if (preferredModel && modelIds.includes(preferredModel)) {
-          return preferredModel;
-        }
-        if (modelIds.includes(prev)) {
-          return prev;
-        }
-        return modelIds[0];
-      });
-    } catch (e) {
-      if (e instanceof ProviderRequestError) {
-        setLastProviderDebug({
-          provider: e.meta.provider,
-          operation: 'models',
-          endpoint:
-            e.meta.endpoint ??
-            (requestProvider === 'openrouter'
-              ? 'https://openrouter.ai/api/v1/models'
-              : '/v1/models'),
-          status: e.meta.status,
-          requestId: e.meta.requestId,
-          headers: {},
-          timestamp: new Date().toISOString(),
+      setProviderModelsState((prev) => ({
+        ...prev,
+        [requestProvider]: {
+          ...prev[requestProvider],
+          loading: true,
+          error: null,
+        },
+      }));
+
+      try {
+        const result = await providerClient.getModels({
+          forceRefresh,
+          openRouterSettings,
         });
+        setLastProviderDebug(result.debug);
+        setProviderModelsState((prev) => ({
+          ...prev,
+          [requestProvider]: {
+            count: result.models.length,
+            fetchedAt: result.fetchedAt,
+            fromCache: result.fromCache,
+            loading: false,
+            error: null,
+          },
+        }));
+
+        if (requestProvider === 'openrouter') {
+          setOpenRouterKeyPrompt(null);
+        }
+
+        if (requestProvider === selectedProvider) {
+          setAvailableModels(result.models);
+        }
+
+        const modelIds = result.models.map((m) => m.id);
+        if (modelIds.length === 0) {
+          setModelName(
+            requestProvider === 'openrouter' ? 'No OpenRouter models' : 'No Local models'
+          );
+          return;
+        }
+
+        const preferredModel =
+          config?.providerModelSelections?.[requestProvider] ??
+          (requestProvider === config?.provider ? config.defaultModel : null);
+
+        setModelName((prev) => {
+          if (preferredModel && modelIds.includes(preferredModel)) {
+            return preferredModel;
+          }
+          if (modelIds.includes(prev)) {
+            return prev;
+          }
+          return modelIds[0];
+        });
+      } catch (e) {
+        const errorMessage = formatModelLoadError(e, requestProvider);
+
+        if (e instanceof ProviderRequestError) {
+          setLastProviderDebug({
+            provider: e.meta.provider,
+            operation: 'models',
+            endpoint:
+              e.meta.endpoint ??
+              (requestProvider === 'openrouter'
+                ? 'https://openrouter.ai/api/v1/models'
+                : '/v1/models'),
+            status: e.meta.status,
+            requestId: e.meta.requestId,
+            headers: {},
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        setProviderModelsState((prev) => ({
+          ...prev,
+          [requestProvider]: {
+            ...prev[requestProvider],
+            loading: false,
+            error: errorMessage,
+          },
+        }));
+
+        if (requestProvider === selectedProvider) {
+          setAvailableModels([]);
+        }
+
+        if (requestProvider === 'openrouter') {
+          setOpenRouterKeyPrompt(errorMessage);
+        }
+
+        console.error(`Failed to load ${requestProvider} models`, e);
       }
-      setAvailableModels([]);
-      console.error(`Failed to load ${requestProvider} models`, e);
-    }
-  }, [
-    config?.defaultModel,
-    config?.provider,
-    config?.providerModelSelections,
-    getProviderClient,
-    openRouterSettings,
-    selectedProvider,
-  ]);
+    },
+    [
+      config?.defaultModel,
+      config?.provider,
+      config?.providerModelSelections,
+      getProviderClient,
+      openRouterSettings,
+      selectedProvider,
+    ]
+  );
 
   const refreshModels = useCallback(
     (forceRefresh = true) => {
@@ -215,13 +347,22 @@ function App() {
         if (result.debug) {
           setLastProviderDebug(result.debug);
         }
+        setProviderModelsState((prev) => ({
+          ...prev,
+          openrouter: {
+            ...prev.openrouter,
+            count: result.modelCount,
+            fetchedAt: Date.now(),
+            error: null,
+          },
+        }));
         return result;
       } catch (error) {
         if (error instanceof ProviderRequestError) {
           setLastProviderDebug({
             provider: error.meta.provider,
             operation: 'test',
-            endpoint: error.meta.endpoint ?? 'https://openrouter.ai/api/v1/auth/key',
+            endpoint: error.meta.endpoint ?? 'https://openrouter.ai/api/v1/models',
             status: error.meta.status,
             requestId: error.meta.requestId,
             headers: {},
@@ -335,13 +476,24 @@ function App() {
 
   useEffect(() => {
     if (config?.provider) {
+      if (config.provider === 'openrouter' && !openRouterSettings.apiKey.trim()) {
+        setSelectedProvider('local');
+        setOpenRouterKeyPrompt('Add an OpenRouter API key in Settings before using OpenRouter.');
+        return;
+      }
       setSelectedProvider(config.provider);
     }
-  }, [config?.provider]);
+  }, [config?.provider, openRouterSettings.apiKey]);
 
   useEffect(() => {
     void fetchModel(false, selectedProvider);
   }, [fetchModel, selectedProvider]);
+
+  useEffect(() => {
+    if (openRouterSettings.apiKey.trim().length > 0) {
+      setOpenRouterKeyPrompt(null);
+    }
+  }, [openRouterSettings.apiKey]);
 
   useEffect(() => {
     try {
@@ -759,6 +911,70 @@ function App() {
     [config, selectedProvider, updateConfig]
   );
 
+  const handleRequireOpenRouterKey = useCallback(() => {
+    setIsRightSidebarOpen(true);
+    setOpenRouterKeyPrompt('Enter an OpenRouter API key in Settings to continue.');
+  }, []);
+
+  const handleProviderChange = useCallback(
+    (nextProvider: ProviderId) => {
+      if (isGenerating || nextProvider === selectedProvider) {
+        return;
+      }
+
+      if (nextProvider === 'openrouter' && !openRouterSettings.apiKey.trim()) {
+        handleRequireOpenRouterKey();
+        return;
+      }
+
+      setSelectedProvider(nextProvider);
+      setOpenRouterKeyPrompt(null);
+
+      if (!config) {
+        return;
+      }
+
+      const nextDefaultModel =
+        config.providerModelSelections?.[nextProvider] ??
+        (nextProvider === config.provider ? config.defaultModel : null);
+
+      void updateConfig({
+        provider: nextProvider,
+        defaultModel: nextDefaultModel,
+      });
+    },
+    [
+      config,
+      handleRequireOpenRouterKey,
+      isGenerating,
+      openRouterSettings.apiKey,
+      selectedProvider,
+      updateConfig,
+    ]
+  );
+
+  const activeProviderModelState = providerModelsState[selectedProvider];
+
+  const modelStatusText = useMemo(() => {
+    const providerLabel = selectedProvider === 'openrouter' ? 'OpenRouter' : 'Local';
+    if (activeProviderModelState.loading) {
+      return `${providerLabel} models: loading...`;
+    }
+
+    const updatedAt = activeProviderModelState.fetchedAt
+      ? new Date(activeProviderModelState.fetchedAt).toLocaleTimeString([], {
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : 'never';
+
+    const cacheSuffix = activeProviderModelState.fromCache ? ' (cached)' : '';
+    return `${providerLabel} models: ${activeProviderModelState.count} • last updated ${updatedAt}${cacheSuffix}`;
+  }, [activeProviderModelState, selectedProvider]);
+
+  const inputPlaceholder =
+    selectedProvider === 'openrouter' ? 'Message OpenRouter model...' : 'Message local model...';
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -788,9 +1004,15 @@ function App() {
 
       <main className="chat-area">
         <ChatHeader
+          selectedProvider={selectedProvider}
           modelName={modelName}
           availableModels={availableModels}
           onModelChange={handleModelChange}
+          onProviderChange={handleProviderChange}
+          onRefreshModels={refreshModels}
+          isModelsLoading={activeProviderModelState.loading}
+          modelStatusText={modelStatusText}
+          modelStatusError={activeProviderModelState.error}
           isGenerating={isGenerating}
           hasMessages={messages.length > 0}
           onSaveChat={saveChat}
@@ -814,6 +1036,7 @@ function App() {
             onInputChange={setInput}
             onSubmit={handleSubmit}
             onKeyDown={handleKeyDown}
+            placeholder={inputPlaceholder}
           />
         </div>
       </main>
@@ -845,6 +1068,8 @@ function App() {
         skillsSyncState={skillsSyncState}
         onSyncSkills={fetchSkills}
         onRefreshSkills={fetchSkills}
+        onRequireOpenRouterKey={handleRequireOpenRouterKey}
+        openRouterKeyPrompt={openRouterKeyPrompt}
       />
     </div>
   );

@@ -6,6 +6,7 @@ interface ChatInputProps {
   onInputChange: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
+  placeholder?: string;
 }
 
 export function ChatInput({
@@ -14,6 +15,7 @@ export function ChatInput({
   onInputChange,
   onSubmit,
   onKeyDown,
+  placeholder = 'Message local model...',
 }: ChatInputProps) {
   return (
     <form className="input-area" onSubmit={onSubmit}>
@@ -23,7 +25,7 @@ export function ChatInput({
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Message local model..."
+          placeholder={placeholder}
           disabled={isGenerating}
           rows={1}
         />

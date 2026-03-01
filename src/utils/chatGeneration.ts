@@ -169,7 +169,7 @@ async function streamAssistantResponse(
   const startTime = performance.now();
 
   const providerClient = getProviderClient(provider);
-  const completion = await providerClient.createChatCompletion(
+  const completion = await providerClient.chatCompletion(
     {
       model: modelName,
       messages: messagesToSend,

@@ -20,9 +20,9 @@ import type {
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const OPENROUTER_MODELS_ENDPOINT = `${OPENROUTER_BASE_URL}/models`;
 const OPENROUTER_CHAT_COMPLETIONS_ENDPOINT = `${OPENROUTER_BASE_URL}/chat/completions`;
-const OPENROUTER_AUTH_KEY_ENDPOINT = `${OPENROUTER_BASE_URL}/auth/key`;
 const OPENROUTER_MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
 const OPENROUTER_MODELS_CACHE_KEY = 'openrouter_models_cache_v1';
+const OPENROUTER_FETCH_TIMEOUT_MS = 15_000;
 
 export const DEFAULT_OPENROUTER_APP_TITLE = 'Local Chat UI';
 export const DEFAULT_OPENROUTER_HTTP_REFERER = 'http://localhost';
@@ -33,13 +33,16 @@ interface OpenRouterModelRecord {
   description?: string;
   context_length?: number;
   input_modalities?: string[];
+  supported_parameters?: string[];
   architecture?: {
     input_modalities?: string[];
+    supported_parameters?: string[];
   };
 }
 
 interface OpenRouterModelsCacheRecord {
   fetchedAt: number;
+  etag?: string | null;
   models: ProviderModel[];
 }
 
@@ -62,7 +65,7 @@ function toRedactedHeaders(headers: Record<string, string>): Record<string, stri
 
 function ensureApiKey(settings: OpenRouterSettings, endpoint: string) {
   if (!settings.apiKey) {
-    throw new ProviderRequestError('OpenRouter API key is required.', {
+    throw new ProviderRequestError('Missing OpenRouter API key. Add it in Settings.', {
       provider: 'openrouter',
       code: 'OPENROUTER_API_KEY_MISSING',
       endpoint,
@@ -91,20 +94,31 @@ function isCacheFresh(cache: OpenRouterModelsCacheRecord, now: number): boolean 
   return now - cache.fetchedAt <= OPENROUTER_MODELS_CACHE_TTL_MS;
 }
 
-function readLocalStorageCache(now: number): OpenRouterModelsCacheRecord | null {
+function isValidCacheRecord(record: unknown): record is OpenRouterModelsCacheRecord {
+  if (!record || typeof record !== 'object') return false;
+
+  const typed = record as {
+    fetchedAt?: unknown;
+    models?: unknown;
+    etag?: unknown;
+  };
+
+  return (
+    typeof typed.fetchedAt === 'number' &&
+    Array.isArray(typed.models) &&
+    (typeof typed.etag === 'undefined' || typed.etag === null || typeof typed.etag === 'string')
+  );
+}
+
+function readLocalStorageCache(): OpenRouterModelsCacheRecord | null {
   if (typeof window === 'undefined') return null;
 
   try {
     const raw = window.localStorage.getItem(OPENROUTER_MODELS_CACHE_KEY);
     if (!raw) return null;
 
-    const parsed = JSON.parse(raw) as OpenRouterModelsCacheRecord;
-    if (!Array.isArray(parsed.models) || typeof parsed.fetchedAt !== 'number') {
-      return null;
-    }
-
-    if (!isCacheFresh(parsed, now)) {
-      window.localStorage.removeItem(OPENROUTER_MODELS_CACHE_KEY);
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isValidCacheRecord(parsed)) {
       return null;
     }
 
@@ -124,6 +138,25 @@ function writeLocalStorageCache(cache: OpenRouterModelsCacheRecord) {
   }
 }
 
+function getMergedCacheRecord(): OpenRouterModelsCacheRecord | null {
+  const storageCache = readLocalStorageCache();
+
+  if (!inMemoryModelsCache) {
+    return storageCache;
+  }
+
+  if (!storageCache) {
+    return inMemoryModelsCache;
+  }
+
+  return inMemoryModelsCache.fetchedAt >= storageCache.fetchedAt ? inMemoryModelsCache : storageCache;
+}
+
+function setCacheRecord(cache: OpenRouterModelsCacheRecord) {
+  inMemoryModelsCache = cache;
+  writeLocalStorageCache(cache);
+}
+
 function extractModalities(model: OpenRouterModelRecord): string[] {
   const root = Array.isArray(model.input_modalities) ? model.input_modalities : [];
   const architecture = Array.isArray(model.architecture?.input_modalities)
@@ -133,20 +166,45 @@ function extractModalities(model: OpenRouterModelRecord): string[] {
   return [...root, ...architecture].map((value) => String(value).toLowerCase());
 }
 
+function extractSupportedParameters(model: OpenRouterModelRecord): string[] {
+  const root = Array.isArray(model.supported_parameters) ? model.supported_parameters : [];
+  const architecture = Array.isArray(model.architecture?.supported_parameters)
+    ? model.architecture.supported_parameters
+    : [];
+
+  return [...root, ...architecture].map((value) => String(value).toLowerCase());
+}
+
 function toOpenRouterModels(payload: unknown): ProviderModel[] {
-  const records =
-    payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown[] }).data)
-      ? ((payload as { data: OpenRouterModelRecord[] }).data ?? [])
-      : [];
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid JSON payload');
+  }
+
+  const data = (payload as { data?: unknown }).data;
+  if (!Array.isArray(data)) {
+    throw new Error('Missing model data array');
+  }
 
   const models: ProviderModel[] = [];
 
-  for (const record of records) {
+  for (const rawRecord of data) {
+    const record = rawRecord as OpenRouterModelRecord;
     const id = typeof record.id === 'string' ? record.id : '';
     if (!id) continue;
 
     const modalities = extractModalities(record);
-    const visionCapable = modalities.some((value) => value.includes('image'));
+    const supportedParameters = extractSupportedParameters(record);
+
+    const visionCapable =
+      modalities.length > 0
+        ? modalities.some((value) => value.includes('image') || value.includes('vision'))
+        : undefined;
+    const toolCallingCapable =
+      supportedParameters.length > 0
+        ? supportedParameters.some(
+            (value) => value === 'tools' || value === 'tool_choice' || value.startsWith('tool_')
+          )
+        : undefined;
 
     models.push({
       id,
@@ -157,6 +215,7 @@ function toOpenRouterModels(payload: unknown): ProviderModel[] {
           ? record.context_length
           : null,
       visionCapable,
+      toolCallingCapable,
       provider: 'openrouter',
     });
   }
@@ -166,7 +225,7 @@ function toOpenRouterModels(payload: unknown): ProviderModel[] {
 
 function getProviderSpecificMessage(status: number, baseMessage: string): string {
   if (status === 401 || status === 403) {
-    return `OpenRouter authentication failed: ${baseMessage}`;
+    return 'OpenRouter API key is invalid or unauthorized (401/403).';
   }
   if (status === 404) {
     return `OpenRouter resource not found: ${baseMessage}`;
@@ -178,7 +237,12 @@ function getProviderSpecificMessage(status: number, baseMessage: string): string
   return baseMessage;
 }
 
-async function ensureOkOrThrow(response: Response, endpoint: string, model?: string) {
+async function ensureOkOrThrow(
+  response: Response,
+  endpoint: string,
+  code: string,
+  model?: string
+) {
   if (response.ok) {
     return;
   }
@@ -192,61 +256,53 @@ async function ensureOkOrThrow(response: Response, endpoint: string, model?: str
     status: response.status,
     requestId: extractRequestId(response.headers),
     endpoint,
-    code: model ? 'OPENROUTER_CHAT_FAILED' : 'OPENROUTER_REQUEST_FAILED',
-    details: errorBody,
+    code,
+    details: {
+      ...((errorBody && typeof errorBody === 'object' ? errorBody : { raw: errorBody }) as Record<
+        string,
+        unknown
+      >),
+      ...(model ? { model } : {}),
+    },
   });
 }
 
-function parseRateLimitInfo(payload: unknown): string | null {
-  if (!payload || typeof payload !== 'object') return null;
+async function fetchWithTimeout(
+  endpoint: string,
+  init: RequestInit,
+  timeoutMs = OPENROUTER_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  const rateLimit = (payload as { data?: { rate_limit?: Record<string, unknown> } }).data
-    ?.rate_limit;
+  try {
+    return await fetch(endpoint, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ProviderRequestError(
+        `OpenRouter request timed out after ${Math.round(timeoutMs / 1000)} seconds.`,
+        {
+          provider: 'openrouter',
+          code: 'OPENROUTER_TIMEOUT',
+          endpoint,
+        }
+      );
+    }
 
-  if (!rateLimit || typeof rateLimit !== 'object') return null;
-
-  const requests =
-    typeof rateLimit.requests === 'number'
-      ? rateLimit.requests
-      : typeof rateLimit.limit === 'number'
-        ? rateLimit.limit
-        : null;
-
-  const interval =
-    typeof rateLimit.interval === 'string'
-      ? rateLimit.interval
-      : typeof rateLimit.window === 'string'
-        ? rateLimit.window
-        : null;
-
-  if (requests !== null && interval) {
-    return `${requests} req/${interval}`;
+    throw new ProviderRequestError(
+      'Network / CORS error while reaching OpenRouter. Check your connection and proxy settings.',
+      {
+        provider: 'openrouter',
+        code: 'OPENROUTER_NETWORK_ERROR',
+        endpoint,
+      }
+    );
+  } finally {
+    clearTimeout(timeoutId);
   }
-  if (requests !== null) {
-    return `${requests} requests/window`;
-  }
-  if (interval) {
-    return interval;
-  }
-
-  return null;
-}
-
-function parseCreditsInfo(payload: unknown): string | null {
-  if (!payload || typeof payload !== 'object') return null;
-
-  const data = (payload as { data?: Record<string, unknown> }).data;
-  if (!data || typeof data !== 'object') return null;
-
-  const limitCandidate = data.limit;
-  const usageCandidate = data.usage;
-
-  if (typeof limitCandidate === 'number' && typeof usageCandidate === 'number') {
-    const remaining = Math.max(limitCandidate - usageCandidate, 0);
-    return `${remaining.toFixed(2)} remaining (${usageCandidate.toFixed(2)} used)`;
-  }
-
-  return null;
 }
 
 export function createOpenRouterProvider(): ProviderModelApi & {
@@ -255,69 +311,108 @@ export function createOpenRouterProvider(): ProviderModelApi & {
   return {
     id: 'openrouter',
 
-    async listModels(options?: ProviderRuntimeOptions): Promise<ProviderModelsResult> {
+    async getModels(options?: ProviderRuntimeOptions): Promise<ProviderModelsResult> {
       const now = Date.now();
       const settings = normalizeOpenRouterSettings(options?.openRouterSettings);
       ensureApiKey(settings, OPENROUTER_MODELS_ENDPOINT);
 
-      if (!options?.forceRefresh) {
-        if (inMemoryModelsCache && isCacheFresh(inMemoryModelsCache, now)) {
-          return {
-            models: inMemoryModelsCache.models,
-            fromCache: true,
-            debug: {
-              provider: 'openrouter',
-              operation: 'models',
-              endpoint: OPENROUTER_MODELS_ENDPOINT,
-              status: 200,
-              requestId: null,
-              headers: toRedactedHeaders(buildOpenRouterHeaders(settings)),
-              fromCache: true,
-              timestamp: toIsoTimestamp(now),
-            },
-          };
-        }
-
-        const localStorageCache = readLocalStorageCache(now);
-        if (localStorageCache) {
-          inMemoryModelsCache = localStorageCache;
-          return {
-            models: localStorageCache.models,
-            fromCache: true,
-            debug: {
-              provider: 'openrouter',
-              operation: 'models',
-              endpoint: OPENROUTER_MODELS_ENDPOINT,
-              status: 200,
-              requestId: null,
-              headers: toRedactedHeaders(buildOpenRouterHeaders(settings)),
-              fromCache: true,
-              timestamp: toIsoTimestamp(now),
-            },
-          };
-        }
+      const cachedRecord = getMergedCacheRecord();
+      if (cachedRecord) {
+        inMemoryModelsCache = cachedRecord;
       }
 
       const headers = buildOpenRouterHeaders(settings);
-      const response = await fetch(OPENROUTER_MODELS_ENDPOINT, {
+
+      if (!options?.forceRefresh && cachedRecord && isCacheFresh(cachedRecord, now)) {
+        return {
+          models: cachedRecord.models,
+          fromCache: true,
+          fetchedAt: cachedRecord.fetchedAt,
+          debug: {
+            provider: 'openrouter',
+            operation: 'models',
+            endpoint: OPENROUTER_MODELS_ENDPOINT,
+            status: 200,
+            requestId: null,
+            headers: toRedactedHeaders(headers),
+            fromCache: true,
+            timestamp: toIsoTimestamp(now),
+          },
+        };
+      }
+
+      if (cachedRecord?.etag) {
+        headers['If-None-Match'] = cachedRecord.etag;
+      }
+
+      const response = await fetchWithTimeout(OPENROUTER_MODELS_ENDPOINT, {
         method: 'GET',
         headers,
       });
 
-      await ensureOkOrThrow(response, OPENROUTER_MODELS_ENDPOINT);
-      const payload = (await response.json()) as unknown;
-      const models = toOpenRouterModels(payload);
+      if (response.status === 304 && cachedRecord) {
+        const refreshedCache: OpenRouterModelsCacheRecord = {
+          ...cachedRecord,
+          fetchedAt: now,
+        };
+        setCacheRecord(refreshedCache);
+
+        return {
+          models: refreshedCache.models,
+          fromCache: true,
+          fetchedAt: refreshedCache.fetchedAt,
+          debug: {
+            provider: 'openrouter',
+            operation: 'models',
+            endpoint: OPENROUTER_MODELS_ENDPOINT,
+            status: response.status,
+            requestId: extractRequestId(response.headers),
+            headers: toRedactedHeaders(headers),
+            fromCache: true,
+            timestamp: toIsoTimestamp(now),
+          },
+        };
+      }
+
+      await ensureOkOrThrow(response, OPENROUTER_MODELS_ENDPOINT, 'OPENROUTER_MODELS_FAILED');
+
+      let payload: unknown;
+      try {
+        payload = (await response.json()) as unknown;
+      } catch {
+        throw new ProviderRequestError('OpenRouter models response could not be parsed.', {
+          provider: 'openrouter',
+          code: 'OPENROUTER_MODELS_PARSE_ERROR',
+          endpoint: OPENROUTER_MODELS_ENDPOINT,
+          status: response.status,
+          requestId: extractRequestId(response.headers),
+        });
+      }
+
+      let models: ProviderModel[];
+      try {
+        models = toOpenRouterModels(payload);
+      } catch {
+        throw new ProviderRequestError('OpenRouter models response had an unexpected format.', {
+          provider: 'openrouter',
+          code: 'OPENROUTER_MODELS_PARSE_ERROR',
+          endpoint: OPENROUTER_MODELS_ENDPOINT,
+          status: response.status,
+          requestId: extractRequestId(response.headers),
+        });
+      }
 
       const cacheRecord: OpenRouterModelsCacheRecord = {
         fetchedAt: now,
+        etag: response.headers.get('etag'),
         models,
       };
-      inMemoryModelsCache = cacheRecord;
-      writeLocalStorageCache(cacheRecord);
+      setCacheRecord(cacheRecord);
 
       return {
         models,
         fromCache: false,
+        fetchedAt: cacheRecord.fetchedAt,
         debug: {
           provider: 'openrouter',
           operation: 'models',
@@ -331,7 +426,7 @@ export function createOpenRouterProvider(): ProviderModelApi & {
       };
     },
 
-    async createChatCompletion(
+    async chatCompletion(
       request: ProviderChatRequest,
       options?: ProviderRuntimeOptions
     ): Promise<ProviderChatCompletionInitResult> {
@@ -351,13 +446,30 @@ export function createOpenRouterProvider(): ProviderModelApi & {
         body.tools = request.tools;
       }
 
-      const response = await fetch(OPENROUTER_CHAT_COMPLETIONS_ENDPOINT, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
+      let response: Response;
+      try {
+        response = await fetch(OPENROUTER_CHAT_COMPLETIONS_ENDPOINT, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        });
+      } catch {
+        throw new ProviderRequestError(
+          'Network / CORS error while reaching OpenRouter chat endpoint.',
+          {
+            provider: 'openrouter',
+            code: 'OPENROUTER_NETWORK_ERROR',
+            endpoint: OPENROUTER_CHAT_COMPLETIONS_ENDPOINT,
+          }
+        );
+      }
 
-      await ensureOkOrThrow(response, OPENROUTER_CHAT_COMPLETIONS_ENDPOINT, request.model);
+      await ensureOkOrThrow(
+        response,
+        OPENROUTER_CHAT_COMPLETIONS_ENDPOINT,
+        'OPENROUTER_CHAT_FAILED',
+        request.model
+      );
 
       return {
         response,
@@ -376,47 +488,25 @@ export function createOpenRouterProvider(): ProviderModelApi & {
 
     async testConnection(settings: OpenRouterSettings): Promise<OpenRouterConnectionStatus> {
       const normalized = normalizeOpenRouterSettings(settings);
-      ensureApiKey(normalized, OPENROUTER_AUTH_KEY_ENDPOINT);
+      ensureApiKey(normalized, OPENROUTER_MODELS_ENDPOINT);
 
-      const headers = buildOpenRouterHeaders(normalized);
-      const keyRes = await fetch(OPENROUTER_AUTH_KEY_ENDPOINT, {
-        method: 'GET',
-        headers,
-      });
-
-      await ensureOkOrThrow(keyRes, OPENROUTER_AUTH_KEY_ENDPOINT);
-      const keyPayload = (await keyRes.json()) as unknown;
-
-      const modelsResult = await this.listModels({
+      const modelsResult = await this.getModels({
         openRouterSettings: normalized,
         forceRefresh: true,
       });
 
-      const rateLimit = parseRateLimitInfo(keyPayload);
-      const credits = parseCreditsInfo(keyPayload);
-
-      const summaryParts = [`Connected to OpenRouter`, `${modelsResult.models.length} models loaded`];
-      if (rateLimit) {
-        summaryParts.push(`rate limit: ${rateLimit}`);
-      }
-      if (credits) {
-        summaryParts.push(`credits: ${credits}`);
-      }
-
       return {
         ok: true,
-        message: summaryParts.join(' · '),
+        message: `Connected to OpenRouter · ${modelsResult.models.length} models loaded`,
         modelCount: modelsResult.models.length,
-        rateLimit,
-        credits,
-        requestId: extractRequestId(keyRes.headers),
+        requestId: modelsResult.debug.requestId,
         debug: {
           provider: 'openrouter',
           operation: 'test',
-          endpoint: OPENROUTER_AUTH_KEY_ENDPOINT,
-          status: keyRes.status,
-          requestId: extractRequestId(keyRes.headers),
-          headers: toRedactedHeaders(headers),
+          endpoint: OPENROUTER_MODELS_ENDPOINT,
+          status: modelsResult.debug.status,
+          requestId: modelsResult.debug.requestId,
+          headers: modelsResult.debug.headers,
           timestamp: toIsoTimestamp(),
         },
       };
